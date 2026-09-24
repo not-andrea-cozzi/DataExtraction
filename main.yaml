@@ -1,0 +1,125 @@
+pipeline:
+  dataset_dir: "Dataset"
+  puzzles_subfolder: "Puzzles"
+  merged_subfolder: "Train"
+  games_subfolder: "Games"
+  state_file: "pipeline_state.json"
+  force_recompute: false
+  log_level: "INFO"
+  log_file: "Dataset/pipeline.log"
+  step: "all"
+  use_existing_games: false
+  seed: 42
+
+engine:
+  stockfish_path: "/usr/games/stockfish"
+  threads: 1
+  hash_mb: 8
+  syzygy_path: null
+
+raw_data:
+  games_zst: ""
+  puzzles_zst: "RawData/lichess_db_puzzle.csv.zst"
+  fics_pgn: "RawData/ficsgamesdb_201001_standard_movetimes_4340144.pgn"
+  club_csv: ""
+  games_source_tag: "games_lichess_time_5"
+  fics_source_tag: "fics_standard_2010_0"
+  club_source_tag: "club"
+  puzzles_source_tag: "licess_puzzles_0"
+
+time_stats:
+  output_filename: "avg_time_by_rating.json"
+  max_games: 100000
+  bucket_size: 100
+
+clock_stats:
+  enabled: true
+  output_filename: "clock_stats.json"
+  bucket_size: 100
+  min_count: 30
+  max_seconds: 300.0
+
+games_pipeline:
+  max_games: null
+  skip_games_part1: 0
+  fics_max_games: null
+  fics_skip_games: 0
+  club_max_games: null
+  club_skip_games: 0
+  club_pgn_col: "pgn"
+
+  analysis_time: 0.5
+  search_depth: 16
+  mate_range_min: 1
+  mate_range_max: 5
+  stockfish_retry_attempts: 2
+  stockfish_retry_backoff_seconds: 0.5
+
+  only_decisive_games: true
+  skip_time_forfeit: true
+  min_rating: 1200
+  max_rating: null
+
+  max_piece_count: null
+  min_material_for_mate_attempt: 3
+  min_material_diff_for_mate_attempt: 3
+  require_heavy_piece: false
+  skip_trivial_endgame: true
+  skip_forced_moves: true
+  candidate_min_legal_moves: 1
+  candidate_max_legal_moves: null
+  skip_if_in_check: false
+
+  min_game_plies: 20
+  min_ply: 6
+  ply_sample_step: 12
+  dense_tail_plies: 24
+  ply_sample_step_tail: 3
+  max_positions_per_game: 20
+  dedupe_positions: true
+
+  require_clock: true
+  drop_zero_clock: true
+  default_move_seconds: 15.0
+
+  workers: null
+  checkpoint_every: 2000
+  pool_join_timeout: 20.0
+  shard_size: 5000
+  save_debug_jsonl: true
+
+puzzle_pipeline:
+  decompressed_csv_filename: "lichess_puzzles.csv"
+  chunk_size_bytes: 1048576
+  max_puzzles: null
+  max_puzzles_per_theme: 1000000
+  min_rating: 600
+  max_rating: null
+  max_piece_count: null
+  min_material_for_mate_attempt: 0
+  min_material_diff_for_mate_attempt: 0
+  require_heavy_piece: false
+  skip_trivial_endgame: true
+  dedupe_positions: true
+  clock_mode: "lognormal"
+  clock_condition_on_mate_n: true
+  clock_min_seconds: 0.5
+  clock_cap_seconds: 300.0
+  save_debug_jsonl: true
+
+splits:
+  train_ratio: 0.80
+  val_ratio: 0.10
+  test_ratio: 0.10
+  output_shard_size: 20000
+
+clean:
+  enabled: true
+  input_dir_train: "Dataset/Train/train"
+  input_dir_val: "Dataset/Train/val"
+  input_dir_test: "Dataset/Train/test"
+  output_dir_train: "Dataset/Train/train_clean"
+  output_dir_val: "Dataset/Train/val_clean"
+  output_dir_test: "Dataset/Train/test_clean"
+  target_shard_size: 15000
+  workers: 0

@@ -1,0 +1,8 @@
+2026-09-24 22:12:36,146 [INFO] dataset_main: ======================================================================
+2026-09-24 22:12:36,146 [INFO] dataset_main: PIPELINE: time_stats -> games_pipeline -> clock_stats -> puzzle_pipeline -> finalize_splits -> clean
+2026-09-24 22:12:36,147 [INFO] dataset_main: ======================================================================
+2026-09-24 22:12:36,147 [INFO] dataset_main: --- step: time_stats ---
+2026-09-24 22:12:36,147 [WARNING] pipeline: [time_stats] raw_data.games_zst vuoto: skip.
+2026-09-24 22:12:36,147 [INFO] dataset_main: --- step: games_pipeline ---
+2026-09-24 22:12:36,147 [WARNING] pipeline: avg_time_by_rating assente (Dataset/avg_time_by_rating.json): fallback su default_move_seconds.
+2026-09-24 22:12:36,147 [ERROR] dataset_main: Errore di configurazione: raw_data (fics) non trovato: RawData/ficsgamesdb_201001_standard_movetimes_4340144.pgn

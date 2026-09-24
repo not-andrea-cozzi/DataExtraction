@@ -1,0 +1,7 @@
+{
+  "games_pipeline": {
+    "done": false,
+    "last_attempt_ts": 1790280756.147409,
+    "last_error": "ConfigError: raw_data (fics) non trovato: RawData/ficsgamesdb_201001_standard_movetimes_4340144.pgn"
+  }
+}
