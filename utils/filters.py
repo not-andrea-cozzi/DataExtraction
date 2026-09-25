@@ -97,10 +97,19 @@ class HeaderFilterConfig:
     require_both_ratings: bool = True
 
 
+
+"""
+    Funzione che 
+"""
 def headers_are_eligible(headers, h: HeaderFilterConfig) -> bool:
+    """Filtra le partite per esito, terminazione e rating minimi/massimi."""
     if h.only_decisive_games and headers.get("Result", "") not in ("1-0", "0-1"):
         return False
-    if h.skip_time_forfeit and "Time forfeit" in (headers.get("Termination", "") or ""):
+
+    termination = headers.get("Termination", "") or ""
+    if h.skip_time_forfeit and "Time forfeit" in termination:
+        return False
+    if termination != "Normal":
         return False
 
     white = parse_rating(headers.get("WhiteElo"))

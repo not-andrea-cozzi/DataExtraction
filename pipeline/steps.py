@@ -9,7 +9,6 @@ from builders.games import (
     ClockConfig, EngineConfig, GamesBuilder, GamesBuilderConfig, SamplingConfig, SourceSpec,
 )
 from builders.puzzles import PuzzleBuilder, PuzzleBuilderConfig, PuzzleClockConfig
-from common.io import iter_jsonl
 from spool.position_queue import PositionSpool
 from stats import ClockStatsBuilder, TimeStatsBuilder, load_avg_time_by_rating
 from utils.filters import HeaderFilterConfig, QualityConfig
@@ -18,6 +17,12 @@ from .config import Config, ConfigError
 from .state import PipelineState
 
 logger = logging.getLogger("pipeline")
+
+# Colonne fisse dei CSV di debug (games e puzzle condividono lo stesso schema).
+DEBUG_FIELDS = [
+    "problem_id", "game_id", "fen", "best_move_uci", "mate_n", "mate_n_window",
+    "ply", "source", "clock_source", "clock_seconds", "clock_is_real", "rating",
+]
 
 
 class Context:
@@ -191,10 +196,10 @@ def step_clock_stats(ctx: Context) -> Dict[str, Any]:
         return ctx.state.meta("clock_stats")
 
     paths = [os.path.join(cfg.games_dir, n)
-             for n in ("games_debug.jsonl", "games_debug_records.pending.jsonl")]
+             for n in ("games_debug.csv", "games_debug_records.pending.csv")]
     paths = [p for p in paths if os.path.exists(p)]
     if not paths:
-        logger.warning("[clock_stats] nessun games_debug*.jsonl in %s: skip.", cfg.games_dir)
+        logger.warning("[clock_stats] nessun games_debug*.csv in %s: skip.", cfg.games_dir)
         return {}
 
     def run():
@@ -350,12 +355,12 @@ def step_finalize(ctx: Context) -> Dict[str, Any]:
 
 
 def _finalize_debug(cfg: Config, ctx: Context, assignment: Dict[str, str]) -> None:
-    from common.io import finalize_jsonl
+    from common.io import finalize_csv
     for d, pending, final in (
-        (cfg.games_dir, "games_debug_records.pending.jsonl", "games_debug.jsonl"),
-        (cfg.puzzles_dir, "puzzle_debug_records.pending.jsonl", "puzzle_debug.jsonl"),
+        (cfg.games_dir, "games_debug_records.pending.csv", "games_debug.csv"),
+        (cfg.puzzles_dir, "puzzle_debug_records.pending.csv", "puzzle_debug.csv"),
     ):
-        finalize_jsonl(os.path.join(d, pending), os.path.join(d, final), assignment)
+        finalize_csv(os.path.join(d, pending), os.path.join(d, final), assignment, DEBUG_FIELDS)
 
 
 # -------------------------------------------------------------------- clean

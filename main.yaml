@@ -1,5 +1,5 @@
 pipeline:
-  dataset_dir: "Dataset"
+  dataset_dir: "../Dataset"
   puzzles_subfolder: "Puzzles"
   merged_subfolder: "Train"
   games_subfolder: "Games"
@@ -13,14 +13,14 @@ pipeline:
 
 engine:
   stockfish_path: "/usr/games/stockfish"
-  threads: 1
+  threads: 2
   hash_mb: 8
   syzygy_path: null
 
 raw_data:
-  games_zst: ""
-  puzzles_zst: "RawData/lichess_db_puzzle.csv.zst"
-  fics_pgn: "RawData/ficsgamesdb_201001_standard_movetimes_4340144.pgn"
+  games_zst: "/home/coco/Downloads/lichess_db_standard_rated_2017-09.pgn.zst"
+  puzzles_zst: ""
+  fics_pgn: ""
   club_csv: ""
   games_source_tag: "games_lichess_time_5"
   fics_source_tag: "fics_standard_2010_0"
@@ -40,7 +40,7 @@ clock_stats:
   max_seconds: 300.0
 
 games_pipeline:
-  max_games: null
+  max_games: 10000
   skip_games_part1: 0
   fics_max_games: null
   fics_skip_games: 0
@@ -61,12 +61,12 @@ games_pipeline:
   max_rating: null
 
   max_piece_count: null
-  min_material_for_mate_attempt: 3
-  min_material_diff_for_mate_attempt: 3
+  min_material_for_mate_attempt: 0
+  min_material_diff_for_mate_attempt: 0
   require_heavy_piece: false
   skip_trivial_endgame: true
   skip_forced_moves: true
-  candidate_min_legal_moves: 1
+  candidate_min_legal_moves: 2
   candidate_max_legal_moves: null
   skip_if_in_check: false
 

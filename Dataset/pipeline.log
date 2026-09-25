@@ -6,3 +6,8 @@
 2026-09-24 22:12:36,147 [INFO] dataset_main: --- step: games_pipeline ---
 2026-09-24 22:12:36,147 [WARNING] pipeline: avg_time_by_rating assente (Dataset/avg_time_by_rating.json): fallback su default_move_seconds.
 2026-09-24 22:12:36,147 [ERROR] dataset_main: Errore di configurazione: raw_data (fics) non trovato: RawData/ficsgamesdb_201001_standard_movetimes_4340144.pgn
+2026-09-25 08:15:52,718 [WARNING] pipeline: avg_time_by_rating assente (../Dataset/avg_time_by_rating.json): fallback su default_move_seconds.
+2026-09-25 08:15:59,226 [WARNING] buildshard: Interrotto. Rilancia lo stesso comando per riprendere (resume attivo).
+2026-09-25 08:16:49,271 [WARNING] pipeline: avg_time_by_rating assente (../Dataset/avg_time_by_rating.json): fallback su default_move_seconds.
+2026-09-25 09:04:28,138 [INFO] pipeline: [games] processed=10000 accepted=1362 enqueued=1687
+2026-09-25 09:04:28,138 [INFO] buildshard: [buildshard] --no-finalize: spool pronto in ../Dataset/spool.

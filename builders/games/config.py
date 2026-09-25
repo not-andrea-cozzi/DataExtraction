@@ -65,8 +65,8 @@ class GamesBuilderConfig:
     mate_range: Tuple[int, int] = (1, 5)
     header: HeaderFilterConfig = field(default_factory=HeaderFilterConfig)
     quality: QualityConfig = field(default_factory=lambda: QualityConfig(
-        min_material_for_mate_attempt=4, min_material_diff_for_mate_attempt=3,
-        require_heavy_piece=True, skip_trivial_endgame=True, max_piece_count=18,
+        min_material_for_mate_attempt=0, min_material_diff_for_mate_attempt=0,
+        require_heavy_piece=False, skip_trivial_endgame=True, max_piece_count=None,
     ))
     sampling: SamplingConfig = field(default_factory=SamplingConfig)
     clock: ClockConfig = field(default_factory=ClockConfig)

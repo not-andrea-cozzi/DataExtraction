@@ -12,8 +12,6 @@ logger = logging.getLogger(__name__)
 
 
 class ResumeTracker:
-    """Avanza il contatore per sorgente solo su id CONTIGUI (sicuro con imap_unordered).
-    Stato persistito = numero di partite completate in modo contiguo, per sorgente."""
 
     def __init__(self, path: str, sources: List[SourceSpec], enabled: bool = True) -> None:
         self.path = path

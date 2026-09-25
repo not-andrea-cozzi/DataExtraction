@@ -9,7 +9,7 @@ import chess
 import pandas as pd
 from tqdm import tqdm
 
-from common.io import JsonlAppender, finalize_jsonl
+from common.io import CsvAppender, finalize_csv
 from core.schema import build_position_data
 from spool.position_queue import PositionSpool
 from stats.clock_stats import ClockSampler
@@ -22,6 +22,9 @@ from .loader import extract_mate_n, load_rows
 logger = logging.getLogger(__name__)
 
 _DEFAULT_PUZZLE_RATING = 1500.0
+
+_DEBUG_FIELDS = ["problem_id", "game_id", "fen", "best_move_uci", "mate_n", "mate_n_window",
+                  "ply", "source", "clock_source", "clock_seconds", "clock_is_real", "rating"]
 
 
 def build_clock_sampler(cfg: PuzzleBuilderConfig) -> ClockSampler:
@@ -44,13 +47,14 @@ class PuzzleBuilder:
         self.spool = spool
         self._sampler = build_clock_sampler(config)
 
-        self.debug: Optional[JsonlAppender] = None
+        self.debug: Optional[CsvAppender] = None
         if config.save_debug_jsonl:
             d = config.debug_dir or "."
             os.makedirs(d, exist_ok=True)
-            self.debug = JsonlAppender(
-                os.path.join(d, "puzzle_debug_records.pending.jsonl"),
-                os.path.join(d, "puzzle_debug.jsonl"),
+            self.debug = CsvAppender(
+                os.path.join(d, "puzzle_debug_records.pending.csv"),
+                os.path.join(d, "puzzle_debug.csv"),
+                _DEBUG_FIELDS,
             )
 
     def run(self) -> Dict[str, Any]:
@@ -155,6 +159,11 @@ class PuzzleBuilder:
         cfg = self.config
         current_mate = max(1, mate_initial - (ply_idx // 2))
         clock = self._sampler.sample(rating, mate_initial, f"{game_id}:{ply_idx}")
+
+        # Tieni solo posizioni con clock sintetico strettamente positivo.
+        if clock <= 0.0:
+            return False
+
         try:
             data = build_position_data(
                 board=board, best_move=move, clock_seconds=clock, rating=rating, game_id=game_id,
@@ -169,17 +178,17 @@ class PuzzleBuilder:
         if self.debug:
             self.debug.add({
                 "problem_id": f"{game_id}_{ply_idx}",
-                "puzzle_id": puzzle_id,
+                "game_id": game_id,
                 "fen": board.fen(),
                 "best_move_uci": move.uci(),
                 "mate_n": current_mate,
                 "mate_n_window": mate_initial,
-                "rating": rating,
                 "ply": ply_idx,
+                "source": cfg.source_tag,
+                "clock_source": "synthetic",
                 "clock_seconds": float(clock),
                 "clock_is_real": False,
-                "game_id": game_id,
-                "source": cfg.source_tag,
+                "rating": rating,
             })
         return True
 
@@ -187,4 +196,4 @@ class PuzzleBuilder:
         if not self.debug:
             return None
         self.debug.persist()
-        return finalize_jsonl(self.debug.pending_path, self.debug.final_path, assignment)
+        return finalize_csv(self.debug.pending_path, self.debug.final_path, assignment, self.debug.fieldnames)

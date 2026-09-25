@@ -6,11 +6,12 @@ import random
 from collections import defaultdict
 from typing import Dict, Iterable, List, Optional, Tuple
 
-from common.io import atomic_write_json, iter_jsonl, read_json
+from common.io import atomic_write_json, iter_csv, read_json
 
 logger = logging.getLogger(__name__)
 
 _MIN_SIGMA = 0.3
+_TRUE_STRINGS = {"true", "1", "yes"}
 Stat = Tuple[float, float, int]
 
 
@@ -23,10 +24,33 @@ def _finalize(n: int, s: float, ss: float) -> Stat:
     return mu, math.sqrt(max(ss / n - mu * mu, 0.0)), n
 
 
+def _to_bool(v) -> bool:
+    """CSV restituisce sempre stringhe: 'True'/'False' vanno castate esplicitamente."""
+    if isinstance(v, bool):
+        return v
+    if v is None:
+        return False
+    return str(v).strip().lower() in _TRUE_STRINGS
+
+
+def _to_float_or_none(v) -> Optional[float]:
+    if v is None or v == "":
+        return None
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def _to_int_or_none(v) -> Optional[int]:
+    f = _to_float_or_none(v)
+    return None if f is None else int(f)
+
+
 class ClockStatsBuilder:
-    def __init__(self, jsonl_paths: Iterable[str], bucket_size: int = 100, min_count: int = 30,
+    def __init__(self, csv_paths: Iterable[str], bucket_size: int = 100, min_count: int = 30,
                  max_seconds: float = 300.0, min_seconds: float = 0.05) -> None:
-        self.paths = list(jsonl_paths)
+        self.paths = list(csv_paths)
         self.bucket_size = bucket_size
         self.min_count = min_count
         self.max_seconds = max_seconds
@@ -38,23 +62,26 @@ class ClockStatsBuilder:
         acc_g = [0, 0.0, 0.0]
         seen: set = set()
 
-        for rec in iter_jsonl(self.paths):
+        for rec in iter_csv(self.paths):
             pid = rec.get("problem_id")
-            if pid is not None:
+            if pid is not None and pid != "":
                 if pid in seen:
                     continue
                 seen.add(pid)
-            if not rec.get("clock_is_real"):
+            if not _to_bool(rec.get("clock_is_real")):
                 continue
-            clock, rating, mate_n = rec.get("clock_seconds"), rec.get("rating"), rec.get("mate_n")
+
+            clock = _to_float_or_none(rec.get("clock_seconds"))
+            rating = _to_float_or_none(rec.get("rating"))
+            mate_n = _to_int_or_none(rec.get("mate_n"))
             if clock is None or rating is None or mate_n is None:
                 continue
-            clock = float(clock)
             if not (self.min_seconds <= clock <= self.max_seconds):
                 continue
+
             lv = math.log(clock)
-            b = _bucket(float(rating), self.bucket_size)
-            for cell in (acc_rm[(b, int(mate_n))], acc_r[b], acc_g):
+            b = _bucket(rating, self.bucket_size)
+            for cell in (acc_rm[(b, mate_n)], acc_r[b], acc_g):
                 cell[0] += 1
                 cell[1] += lv
                 cell[2] += lv * lv

@@ -10,7 +10,7 @@ import time
 from collections import defaultdict
 from typing import Any, Dict, Generator, Optional, Tuple
 
-from common.io import JsonlAppender, finalize_jsonl
+from common.io import CsvAppender, finalize_csv
 from common.progress import wrap_iter
 from spool.position_queue import PositionSpool
 from utils.ipc import decode_from_ipc, harden_process_for_ipc
@@ -21,6 +21,9 @@ from .resume import ResumeTracker
 from .worker import Task, pool_initializer, worker_entry
 
 logger = logging.getLogger(__name__)
+
+_DEBUG_FIELDS = ["problem_id", "game_id", "fen", "best_move_uci", "mate_n", "mate_n_window",
+                  "ply", "source", "clock_source", "clock_seconds", "clock_is_real", "rating"]
 
 
 def _kill_pool_processes(pool) -> None:
@@ -64,13 +67,14 @@ class GamesBuilder:
         self._workers = config.workers or max(1, (os.cpu_count() or 2) - 1)
         self._resume = ResumeTracker(config.resume_state_path, config.sources, enabled=config.auto_resume)
 
-        self.debug: Optional[JsonlAppender] = None
+        self.debug: Optional[CsvAppender] = None
         if config.save_debug_jsonl:
             d = config.debug_dir or os.path.dirname(os.path.abspath(config.resume_state_path))
             os.makedirs(d, exist_ok=True)
-            self.debug = JsonlAppender(
-                os.path.join(d, "games_debug_records.pending.jsonl"),
-                os.path.join(d, "games_debug.jsonl"),
+            self.debug = CsvAppender(
+                os.path.join(d, "games_debug_records.pending.csv"),
+                os.path.join(d, "games_debug.csv"),
+                _DEBUG_FIELDS,
             )
 
     def _iter_tasks(self) -> Generator[Task, None, None]:
@@ -184,4 +188,4 @@ class GamesBuilder:
         if not self.debug:
             return None
         self.debug.persist()
-        return finalize_jsonl(self.debug.pending_path, self.debug.final_path, assignment)
+        return finalize_csv(self.debug.pending_path, self.debug.final_path, assignment, self.debug.fieldnames)

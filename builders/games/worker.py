@@ -195,7 +195,8 @@ def _evaluate(
             clock_seconds, clock_source = bucket, "rating_bucket"
         else:
             clock_seconds, clock_source = cfg.clock.default_move_seconds, "default_constant"
-    if cfg.clock.drop_zero_clock and clock_seconds == 0.0 and not is_real:
+
+    if clock_seconds is None or clock_seconds <= 0.0:
         return 1, None
 
     try:
