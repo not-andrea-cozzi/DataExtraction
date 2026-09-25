@@ -29,7 +29,7 @@ raw_data:
 
 time_stats:
   output_filename: "avg_time_by_rating.json"
-  max_games: 100000
+  max_games: 100
   bucket_size: 100
 
 clock_stats:

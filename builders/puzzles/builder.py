@@ -158,9 +158,13 @@ class PuzzleBuilder:
     def _emit(self, board, move, game_id, ply_idx, rating, mate_initial, puzzle_id, mate_counts) -> bool:
         cfg = self.config
         current_mate = max(1, mate_initial - (ply_idx // 2))
+
+        lo, hi = cfg.mate_range
+        if not (lo <= current_mate <= hi):
+            return False
+
         clock = self._sampler.sample(rating, mate_initial, f"{game_id}:{ply_idx}")
 
-        # Tieni solo posizioni con clock sintetico strettamente positivo.
         if clock <= 0.0:
             return False
 
@@ -168,6 +172,7 @@ class PuzzleBuilder:
             data = build_position_data(
                 board=board, best_move=move, clock_seconds=clock, rating=rating, game_id=game_id,
                 ply=ply_idx, mate_n=current_mate, edge_time_factors=DEFAULT_EDGE_TIME_FACTORS,
+                mate_range=cfg.mate_range,
             )
         except ValueError as e:
             logger.warning("PuzzleId=%s ply=%d scartata (%s).", puzzle_id, ply_idx, e)

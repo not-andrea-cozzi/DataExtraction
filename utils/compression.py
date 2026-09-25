@@ -6,7 +6,7 @@ import torch
 from torch_geometric.data import Data
 
 _UINT8_MAX = 255
-_BOOL_FIELDS = ("legal_move_mask",)
+_INT16_MAX = 32767
 
 
 def _assert_binary(t: torch.Tensor, name: str) -> None:
@@ -17,6 +17,11 @@ def _assert_binary(t: torch.Tensor, name: str) -> None:
 def _assert_uint8(t: torch.Tensor, name: str) -> None:
     if t.numel() and (int(t.min()) < 0 or int(t.max()) > _UINT8_MAX):
         raise ValueError(f"compress: '{name}' fuori da uint8.")
+
+
+def _assert_int16_range(t: torch.Tensor, name: str) -> None:
+    if t.numel() and (int(t.min()) < 0 or int(t.max()) > _INT16_MAX):
+        raise ValueError(f"compress: '{name}' fuori da int16 [0,{_INT16_MAX}].")
 
 
 def _time_by_edge_type(time_t: torch.Tensor, edge_attr: torch.Tensor) -> Dict[int, float]:
@@ -32,7 +37,6 @@ def _time_by_edge_type(time_t: torch.Tensor, edge_attr: torch.Tensor) -> Dict[in
 
 
 def compress_position_data(data: Data) -> Data:
-    """Lossless, non muta l'input. Richiede x [64,3] (2 binarie + clock)."""
     c = Data()
     time_t = edge_attr = None
 
@@ -46,8 +50,12 @@ def compress_position_data(data: Data) -> Data:
             _assert_binary(v[:, :-1], "x[:, :-1]")
             c.x_binary = v[:, :-1].to(torch.bool)
             c.x_continuous = v[:, -1:].to(torch.float32)
-        elif key in _BOOL_FIELDS:
-            c[key] = v.to(torch.bool)
+        elif key == "edge_index":
+            _assert_int16_range(v, key)
+            c[key] = v.to(torch.int16)
+        elif key == "legal_move_indices":
+            _assert_int16_range(v, key)
+            c[key] = v.to(torch.int16)
         elif key == "event_ids":
             _assert_uint8(v, key)
             c[key] = v.to(torch.uint8)
@@ -76,8 +84,10 @@ def decompress_position_data(data: Data) -> Data:
             continue
         if not torch.is_tensor(v):
             d[key] = v
-        elif key in _BOOL_FIELDS:
-            d[key] = v.to(torch.bool)
+        elif key == "edge_index":
+            d[key] = v.to(torch.long)
+        elif key == "legal_move_indices":
+            d[key] = v.to(torch.long)
         elif key == "event_ids":
             d[key] = v.to(torch.long)
         elif key == "edge_attr":

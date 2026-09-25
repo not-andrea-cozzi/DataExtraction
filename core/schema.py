@@ -17,14 +17,24 @@ from .constants import (
     MOVE_VOCAB_SIZE,
     NUM_EDGE_TYPES,
 )
+from .labels import mate_in_n_label
 from .move_codec import encode_move
 
 
-def build_legal_move_mask(board: "chess.Board") -> torch.Tensor:
-    mask = torch.zeros(1, MOVE_VOCAB_SIZE, dtype=torch.bool)
-    for move in board.legal_moves:
-        mask[0, encode_move(move)] = True
+def build_legal_move_indices(board: "chess.Board") -> torch.Tensor:
+    indices = [encode_move(move) for move in board.legal_moves]
+    return torch.tensor(indices, dtype=torch.int16)
+
+
+def legal_move_mask_from_indices(indices: torch.Tensor, vocab_size: int = MOVE_VOCAB_SIZE) -> torch.Tensor:
+    mask = torch.zeros(1, vocab_size, dtype=torch.bool)
+    if indices.numel():
+        mask[0, indices.long()] = True
     return mask
+
+
+def build_legal_move_mask(board: "chess.Board") -> torch.Tensor:
+    return legal_move_mask_from_indices(build_legal_move_indices(board))
 
 
 def encode_square_event_id(board: "chess.Board", square: int) -> int:
@@ -89,9 +99,8 @@ def build_position_data(
     ply: int,
     mate_n: Optional[int] = None,
     edge_time_factors: Optional[dict] = None,
+    mate_range: Optional[Tuple[int, int]] = None,
 ) -> Data:
-    """Costruisce il Data di una posizione. `edge_time_factors` ({edge_type: f})
-    applica direttamente il peso per tipo di arco a `time` (nessun clone a valle)."""
     if best_move not in board.legal_moves:
         raise ValueError(f"best_move={best_move.uci()} illegale (fen={board.fen()}).")
     if mate_n is not None and not (0 <= mate_n <= MATE_N_MAX):
@@ -135,10 +144,14 @@ def build_position_data(
     data.edge_attr = edge_attr
     data.time = time_tensor
     data.y = torch.tensor(encode_move(best_move), dtype=torch.long)
-    data.legal_move_mask = build_legal_move_mask(board)
+    data.legal_move_indices = build_legal_move_indices(board)
     data.rating = torch.tensor(float(rating), dtype=torch.float16)
     data.game_id = game_id
     data.ply = torch.tensor(int(ply), dtype=torch.int64)
     if mate_n is not None:
         data.position_mate_n = torch.tensor(int(mate_n), dtype=torch.uint8)
+        if mate_range is not None:
+            data.outcome = torch.tensor(
+                mate_in_n_label(int(mate_n), mate_range), dtype=torch.long
+            )
     return data

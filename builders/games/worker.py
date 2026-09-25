@@ -203,6 +203,7 @@ def _evaluate(
         data = build_position_data(
             board=board, best_move=best_move, clock_seconds=clock_seconds, rating=float(rating),
             game_id=game_id, ply=ply, mate_n=int(mate_n), edge_time_factors=DEFAULT_EDGE_TIME_FACTORS,
+            mate_range=cfg.mate_range,
         )
     except ValueError:
         return 1, None
