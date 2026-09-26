@@ -6,7 +6,7 @@ pipeline:
   state_file: "pipeline_state.json"
   force_recompute: false
   log_level: "INFO"
-  log_file: "Dataset/pipeline.log"
+  log_file: "../Dataset/pipeline.log"
   step: "all"
   use_existing_games: false
   seed: 42
@@ -40,7 +40,7 @@ clock_stats:
   max_seconds: 300.0
 
 games_pipeline:
-  max_games: 10000
+  max_games: 15000
   skip_games_part1: 0
   fics_max_games: null
   fics_skip_games: 0
@@ -49,7 +49,7 @@ games_pipeline:
   club_pgn_col: "pgn"
 
   analysis_time: 0.5
-  search_depth: 16
+  search_depth: 17
   mate_range_min: 1
   mate_range_max: 5
   stockfish_retry_attempts: 2
@@ -57,7 +57,7 @@ games_pipeline:
 
   only_decisive_games: true
   skip_time_forfeit: true
-  min_rating: 1200
+  min_rating: 1400
   max_rating: null
 
   max_piece_count: null

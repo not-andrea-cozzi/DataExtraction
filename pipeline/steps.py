@@ -322,7 +322,7 @@ class _ShardWriter:
         return self.files
 
 
-def step_finalize(ctx: Context) -> Dict[str, Any]:
+def step_finalize(ctx: Context, mark_done: bool = True) -> Dict[str, Any]:
     cfg = ctx.cfg
     if ctx.skip_if_done("finalize_splits"):
         logger.info("[finalize] gia' completato: skip.")
@@ -348,7 +348,8 @@ def step_finalize(ctx: Context) -> Dict[str, Any]:
 
         _finalize_debug(cfg, ctx, assignment)
         spool.clear()
-        ctx.state.mark_done("finalize_splits", **meta)
+        if mark_done: 
+            ctx.state.mark_done("finalize_splits", **meta)
         return meta
 
     return _guard(ctx, "finalize_splits", run)

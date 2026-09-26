@@ -62,7 +62,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             return 0
 
         cfg.pipeline.force_recompute = True
-        meta = step_finalize(ctx)
+        meta = step_finalize(ctx, mark_done=False)
         logger.info("[buildshard] shard scritti in %s: %s", cfg.merged_dir, meta)
         return 0
 

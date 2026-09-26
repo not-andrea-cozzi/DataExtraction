@@ -11,3 +11,35 @@
 2026-09-25 08:16:49,271 [WARNING] pipeline: avg_time_by_rating assente (../Dataset/avg_time_by_rating.json): fallback su default_move_seconds.
 2026-09-25 09:04:28,138 [INFO] pipeline: [games] processed=10000 accepted=1362 enqueued=1687
 2026-09-25 09:04:28,138 [INFO] buildshard: [buildshard] --no-finalize: spool pronto in ../Dataset/spool.
+2026-09-25 12:19:40,987 [INFO] pipeline: [games] gia' completato: skip.
+2026-09-25 12:19:40,987 [INFO] buildshard: [buildshard] --no-finalize: spool pronto in ../Dataset/spool.
+2026-09-25 12:21:16,018 [WARNING] pipeline: avg_time_by_rating assente (../Dataset/avg_time_by_rating.json): fallback su default_move_seconds.
+2026-09-25 12:21:16,019 [INFO] builders.games.resume: [resume] lichess:/home/coco/Downloads/lichess_db_standard_rated_2017-09.pgn.zst: skip_games=10000 (10000 gia' processate).
+2026-09-25 13:08:10,989 [INFO] pipeline: [games] processed=10000 accepted=1361 enqueued=1657
+2026-09-25 13:08:10,989 [INFO] buildshard: [buildshard] --no-finalize: spool pronto in ../Dataset/spool.
+2026-09-25 13:10:40,059 [INFO] pipeline: [games] gia' completato: skip.
+2026-09-25 13:10:40,059 [INFO] buildshard: [buildshard] --no-finalize: spool pronto in ../Dataset/spool.
+2026-09-25 13:12:27,126 [WARNING] pipeline: avg_time_by_rating assente (../Dataset/avg_time_by_rating.json): fallback su default_move_seconds.
+2026-09-25 13:12:27,127 [INFO] builders.games.resume: [resume] lichess:/home/coco/Downloads/lichess_db_standard_rated_2017-09.pgn.zst: skip_games=20000 (20000 gia' processate).
+2026-09-25 13:59:45,059 [INFO] pipeline: [games] processed=10000 accepted=1367 enqueued=1702
+2026-09-25 13:59:45,059 [INFO] buildshard: [buildshard] --no-finalize: spool pronto in ../Dataset/spool.
+2026-09-25 14:01:35,252 [INFO] pipeline: [games] gia' completato: skip.
+2026-09-25 14:01:35,252 [INFO] buildshard: [buildshard] --no-finalize: spool pronto in ../Dataset/spool.
+2026-09-25 14:02:10,905 [WARNING] pipeline: avg_time_by_rating assente (../Dataset/avg_time_by_rating.json): fallback su default_move_seconds.
+2026-09-25 14:02:10,906 [INFO] builders.games.resume: [resume] lichess:/home/coco/Downloads/lichess_db_standard_rated_2017-09.pgn.zst: skip_games=30000 (30000 gia' processate).
+2026-09-25 14:51:04,385 [INFO] pipeline: [games] processed=10000 accepted=1394 enqueued=1699
+2026-09-25 14:51:04,385 [INFO] buildshard: [buildshard] --no-finalize: spool pronto in ../Dataset/spool.
+2026-09-25 15:13:15,149 [WARNING] pipeline: avg_time_by_rating assente (../Dataset/avg_time_by_rating.json): fallback su default_move_seconds.
+2026-09-25 15:13:15,150 [INFO] builders.games.resume: [resume] lichess:/home/coco/Downloads/lichess_db_standard_rated_2017-09.pgn.zst: skip_games=40000 (40000 gia' processate).
+2026-09-25 16:47:34,203 [INFO] pipeline: [games] processed=20000 accepted=2795 enqueued=3437
+2026-09-25 16:47:34,203 [INFO] buildshard: [buildshard] --no-finalize: spool pronto in ../Dataset/spool.
+2026-09-25 16:48:43,557 [WARNING] pipeline: avg_time_by_rating assente (../Dataset/avg_time_by_rating.json): fallback su default_move_seconds.
+2026-09-25 16:48:43,557 [INFO] builders.games.resume: [resume] lichess:/home/coco/Downloads/lichess_db_standard_rated_2017-09.pgn.zst: skip_games=60000 (60000 gia' processate).
+2026-09-25 18:02:11,140 [INFO] pipeline: [games] processed=20000 accepted=895 enqueued=1016
+2026-09-25 18:02:11,140 [INFO] buildshard: [buildshard] --no-finalize: spool pronto in ../Dataset/spool.
+2026-09-25 19:17:54,981 [INFO] pipeline: [games] gia' completato: skip.
+2026-09-25 19:17:54,981 [INFO] buildshard: [buildshard] --no-finalize: spool pronto in ../Dataset/spool.
+2026-09-25 19:29:05,526 [WARNING] pipeline: avg_time_by_rating assente (../Dataset/avg_time_by_rating.json): fallback su default_move_seconds.
+2026-09-25 19:29:05,526 [INFO] builders.games.resume: [resume] lichess:/home/coco/Downloads/lichess_db_standard_rated_2017-09.pgn.zst: skip_games=80000 (80000 gia' processate).
+2026-09-25 20:44:16,749 [INFO] pipeline: [games] processed=20000 accepted=885 enqueued=988
+2026-09-25 20:44:16,749 [INFO] buildshard: [buildshard] --no-finalize: spool pronto in ../Dataset/spool.

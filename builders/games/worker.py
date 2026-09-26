@@ -8,7 +8,7 @@ import chess
 import chess.pgn
 
 from core.schema import build_position_data
-from utils.filters import candidate_legal_moves, has_mating_material, headers_are_eligible, \
+from utils.filters import candidate_legal_moves, has_mate_potential, has_mating_material, headers_are_eligible, \
     is_trivially_drawn_endgame, mover_has_heavy_piece
 from utils.edge_weighting import DEFAULT_EDGE_TIME_FACTORS
 from utils.ipc import encode_for_ipc
@@ -163,6 +163,10 @@ def _evaluate(
     if not has_mating_material(board, q):
         return 0, None
     if q.skip_trivial_endgame and is_trivially_drawn_endgame(board):
+        return 0, None
+    if q.require_mate_potential and not has_mate_potential(
+        board, q.mate_potential_min_attackers, q.mate_potential_max_escapes
+    ):
         return 0, None
     if engine.syzygy_says_no_mate(board):
         return 0, None

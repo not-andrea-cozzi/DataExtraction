@@ -21,6 +21,9 @@ class QualityConfig:
     candidate_max_legal_moves: Optional[int] = None
     skip_if_in_check: bool = False
     skip_forced_moves: bool = False
+    require_mate_potential: bool = False
+    mate_potential_min_attackers: int = 1
+    mate_potential_max_escapes: int = 3
 
 
 def material_by_color(board: chess.Board) -> Tuple[int, int]:
@@ -124,3 +127,28 @@ def headers_are_eligible(headers, h: HeaderFilterConfig) -> bool:
         if h.max_rating is not None and min(ratings) > h.max_rating:
             return False
     return True
+
+
+def king_hunt_score(board: chess.Board) -> Tuple[int, int]:
+    opp = not board.turn
+    king_sq = board.king(opp)
+    if king_sq is None:
+        return 0, 8
+    attackers = len(board.attackers(board.turn, king_sq))
+    escapes = 0
+    for sq in chess.SQUARES:
+        if chess.square_distance(sq, king_sq) != 1:
+            continue
+        if board.piece_at(sq) is not None and board.piece_at(sq).color == opp:
+            continue
+        if board.is_attacked_by(board.turn, sq):
+            continue
+        escapes += 1
+    return attackers, escapes
+
+
+def has_mate_potential(board: chess.Board, min_attackers: int = 1, max_escapes: int = 3) -> bool:
+    attackers, escapes = king_hunt_score(board)
+    if board.is_check():
+        return True  
+    return attackers >= min_attackers and escapes <= max_escapes

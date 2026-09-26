@@ -110,6 +110,10 @@ class GamesSection:
     candidate_min_legal_moves: int = 1
     candidate_max_legal_moves: Optional[int] = None
     skip_if_in_check: bool = False
+    skip_if_in_check: bool = False
+    require_mate_potential: bool = False
+    mate_potential_min_attackers: int = 1
+    mate_potential_max_escapes: int = 3
 
     # sampling
     min_game_plies: int = 20
