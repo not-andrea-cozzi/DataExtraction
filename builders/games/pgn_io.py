@@ -9,6 +9,8 @@ from typing import Generator, List, Optional, Tuple
 import pandas as pd
 import zstandard as zstd
 
+from common.game_id_store import extract_lichess_site_id
+
 from .config import SourceSpec
 
 
@@ -92,3 +94,16 @@ def iter_source(src: SourceSpec) -> Generator[Tuple[int, str], None, None]:
         return
     with _open_text(src.path, src.kind) as stream:
         yield from _iter_pgn_texts(stream, src.skip_games, src.max_games)
+
+
+def iter_source_with_site_id(src: SourceSpec) -> Generator[Tuple[int, str, Optional[str]], None, None]:
+    """Come iter_source, ma con in piu' il terzo elemento: l'ID lichess globale
+    (da header [Site]), o None se non estraibile o se src.kind != 'lichess'.
+
+    Usato per il dedup cross-file: il local_id e' solo posizionale nel file
+    corrente e collide tra mesi diversi, l'ID lichess e' invece stabile
+    e univoco su tutto il dataset.
+    """
+    for local_id, pgn in iter_source(src):
+        site_id = extract_lichess_site_id(pgn) if src.kind == "lichess" else None
+        yield local_id, pgn, site_id

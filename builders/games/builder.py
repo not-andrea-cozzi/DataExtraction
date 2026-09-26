@@ -10,13 +10,14 @@ import time
 from collections import defaultdict
 from typing import Any, Dict, Generator, Optional, Tuple
 
+from common.game_id_store import GameIdStore
 from common.io import CsvAppender, finalize_csv
 from common.progress import wrap_iter
 from spool.position_queue import PositionSpool
 from utils.ipc import decode_from_ipc, harden_process_for_ipc
 
 from .config import GamesBuilderConfig
-from .pgn_io import iter_source
+from .pgn_io import iter_source_with_site_id
 from .resume import ResumeTracker
 from .worker import Task, pool_initializer, worker_entry
 
@@ -67,6 +68,10 @@ class GamesBuilder:
         self._workers = config.workers or max(1, (os.cpu_count() or 2) - 1)
         self._resume = ResumeTracker(config.resume_state_path, config.sources, enabled=config.auto_resume)
 
+        self._dedup: Optional[GameIdStore] = None
+        if config.dedupe_cross_file:
+            self._dedup = GameIdStore(config.game_id_store_path)
+
         self.debug: Optional[CsvAppender] = None
         if config.save_debug_jsonl:
             d = config.debug_dir or os.path.dirname(os.path.abspath(config.resume_state_path))
@@ -78,9 +83,17 @@ class GamesBuilder:
             )
 
     def _iter_tasks(self) -> Generator[Task, None, None]:
+        skipped_dupe = 0
         for src in self.config.sources:
-            for local_id, text in iter_source(src):
+            for local_id, text, site_id in iter_source_with_site_id(src):
+                if self._dedup is not None and site_id is not None:
+                    if self._dedup.contains(site_id):
+                        skipped_dupe += 1
+                        continue
+                    self._dedup.add(site_id)
                 yield (local_id, text, src.tag, src.resume_key)
+        if self._dedup is not None and skipped_dupe:
+            logger.info("[games] dedup cross-file: %d partite gia' viste, scartate senza analisi.", skipped_dupe)
 
     def _estimate(self) -> Optional[int]:
         total = 0
@@ -125,6 +138,8 @@ class GamesBuilder:
                         self.debug.persist()
                     if cfg.auto_resume:
                         self._resume.persist()
+                    if self._dedup is not None:
+                        self._dedup.commit()
                 if cfg.flush_every_seconds and time.monotonic() - last_flush >= cfg.flush_every_seconds:
                     self.spool.flush()
                     last_flush = time.monotonic()
@@ -166,6 +181,8 @@ class GamesBuilder:
             _shutdown_pool(pool, graceful=True, join_timeout=cfg.pool_join_timeout)
         finally:
             self._resume.persist()
+            if self._dedup is not None:
+                self._dedup.close()
             signal.signal(signal.SIGINT, prev_sigint)
 
         self.spool.flush()

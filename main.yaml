@@ -40,6 +40,7 @@ clock_stats:
   max_seconds: 300.0
 
 games_pipeline:
+  dedupe_cross_file: true
   max_games: 15000
   skip_games_part1: 0
   fics_max_games: null

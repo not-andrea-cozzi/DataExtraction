@@ -82,6 +82,9 @@ class GamesBuilderConfig:
     debug_dir: Optional[str] = None
     save_debug_jsonl: bool = True
 
+    dedupe_cross_file: bool = False
+    game_id_store_path: str = "lichess_seen_ids.sqlite3"
+
     def validate(self) -> None:
         lo, hi = self.mate_range
         if lo < 1 or hi < lo:

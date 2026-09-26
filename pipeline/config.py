@@ -110,7 +110,6 @@ class GamesSection:
     candidate_min_legal_moves: int = 1
     candidate_max_legal_moves: Optional[int] = None
     skip_if_in_check: bool = False
-    skip_if_in_check: bool = False
     require_mate_potential: bool = False
     mate_potential_min_attackers: int = 1
     mate_potential_max_escapes: int = 3
@@ -134,6 +133,11 @@ class GamesSection:
     pool_join_timeout: float = 20.0
     shard_size: int = 5000
     save_debug_jsonl: bool = True
+
+    # dedup cross-file: evita di ri-analizzare la stessa partita lichess
+    # (identificata dall'header [Site]) se compare in file/mesi diversi.
+    dedupe_cross_file: bool = False
+    game_id_store_filename: str = "lichess_seen_ids.sqlite3"
 
 
 @dataclass
@@ -233,6 +237,10 @@ class Config:
     @property
     def clock_stats_path(self) -> str:
         return self.path(self.clock_stats.output_filename)
+
+    @property
+    def game_id_store_path(self) -> str:
+        return self.path(self.games_pipeline.game_id_store_filename)
 
     @property
     def state_path(self) -> str:

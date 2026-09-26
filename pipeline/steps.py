@@ -161,6 +161,7 @@ def make_games_config(cfg: Config, avg_time: Dict[int, float]) -> GamesBuilderCo
         workers=g.workers, pool_join_timeout=g.pool_join_timeout,
         resume_state_path=cfg.resume_path, auto_resume=True, resume_checkpoint_every=g.checkpoint_every,
         debug_dir=cfg.games_dir, save_debug_jsonl=g.save_debug_jsonl,
+        dedupe_cross_file=g.dedupe_cross_file, game_id_store_path=cfg.game_id_store_path,
     )
 
 
