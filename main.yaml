@@ -18,11 +18,11 @@ engine:
   syzygy_path: null
 
 raw_data:
-  games_zst: "/home/coco/Downloads/lichess_db_standard_rated_2017-09.pgn.zst"
+  games_zst: "/home/coco/Downloads/lichess_db_standard_rated_2018-11.pgn.zst"
   puzzles_zst: ""
   fics_pgn: ""
   club_csv: ""
-  games_source_tag: "games_lichess_time_5"
+  games_source_tag: "games_2018"
   fics_source_tag: "fics_standard_2010_0"
   club_source_tag: "club"
   puzzles_source_tag: "licess_puzzles_0"
@@ -41,7 +41,7 @@ clock_stats:
 
 games_pipeline:
   dedupe_cross_file: true
-  max_games: 15000
+  max_games: 30000
   skip_games_part1: 0
   fics_max_games: null
   fics_skip_games: 0
@@ -50,8 +50,8 @@ games_pipeline:
   club_pgn_col: "pgn"
 
   analysis_time: 0.5
-  search_depth: 17
-  mate_range_min: 1
+  search_depth: 16
+  mate_range_min: 3
   mate_range_max: 5
   stockfish_retry_attempts: 2
   stockfish_retry_backoff_seconds: 0.5
