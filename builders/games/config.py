@@ -64,6 +64,7 @@ class GamesBuilderConfig:
     engine: EngineConfig
     mate_range: Tuple[int, int] = (1, 5)
     header: HeaderFilterConfig = field(default_factory=HeaderFilterConfig)
+    header_by_tag: Dict[str, HeaderFilterConfig] = field(default_factory=dict)
     quality: QualityConfig = field(default_factory=lambda: QualityConfig(
         min_material_for_mate_attempt=0, min_material_diff_for_mate_attempt=0,
         require_heavy_piece=False, skip_trivial_endgame=True, max_piece_count=None,
@@ -84,6 +85,10 @@ class GamesBuilderConfig:
 
     dedupe_cross_file: bool = False
     game_id_store_path: str = "lichess_seen_ids.sqlite3"
+
+    def header_for_tag(self, tag: str) -> HeaderFilterConfig:
+        """Ritorna l'HeaderFilterConfig per il source_tag dato, con fallback su 'header'."""
+        return self.header_by_tag.get(tag, self.header)
 
     def validate(self) -> None:
         lo, hi = self.mate_range

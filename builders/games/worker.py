@@ -55,12 +55,16 @@ def analyse_game(cfg: GamesBuilderConfig, engine: Optional[Engine], task: Task) 
     if engine is None or not engine.is_ready():
         return local_id, resume_key, empty
 
+    # Filtro header dipendente dalla fonte (es. FICS non ha [Termination]
+    # affidabile: si tengono tutte le partite, incluse quelle a tempo scaduto).
+    header_cfg = cfg.header_for_tag(source_tag)
+
     try:
         stream = io.StringIO(pgn_text)
         headers = chess.pgn.read_headers(stream)
         if headers is None or headers.get("Variant", "Standard").lower() not in ("standard", "normal"):
             return local_id, resume_key, empty
-        if not headers_are_eligible(headers, cfg.header):
+        if not headers_are_eligible(headers, header_cfg):
             return local_id, resume_key, empty
         stream.seek(0)
         game = chess.pgn.read_game(stream)

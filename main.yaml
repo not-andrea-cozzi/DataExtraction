@@ -23,7 +23,7 @@ raw_data:
   fics_pgn: ""
   club_csv: ""
   games_source_tag: "games_2018"
-  fics_source_tag: "fics_standard_2010_0"
+  fics_source_tag: "fics_2025_lighting"
   club_source_tag: "club"
   puzzles_source_tag: "licess_puzzles_0"
 
@@ -41,7 +41,7 @@ clock_stats:
 
 games_pipeline:
   dedupe_cross_file: true
-  max_games: 30000
+  max_games: 10000
   skip_games_part1: 0
   fics_max_games: null
   fics_skip_games: 0

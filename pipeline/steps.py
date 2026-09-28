@@ -9,6 +9,7 @@ from builders.games import (
     ClockConfig, EngineConfig, GamesBuilder, GamesBuilderConfig, SamplingConfig, SourceSpec,
 )
 from builders.puzzles import PuzzleBuilder, PuzzleBuilderConfig, PuzzleClockConfig
+from cleaner.clean_dataset import clean_sharded_directory
 from spool.position_queue import PositionSpool
 from stats import ClockStatsBuilder, TimeStatsBuilder, load_avg_time_by_rating
 from utils.filters import HeaderFilterConfig, QualityConfig
@@ -129,6 +130,19 @@ def make_games_config(cfg: Config, avg_time: Dict[int, float]) -> GamesBuilderCo
         raise ConfigError(f"engine.stockfish_path non valido/eseguibile: {e.stockfish_path!r}")
     os.makedirs(cfg.games_dir, exist_ok=True)
 
+    header = HeaderFilterConfig(
+        only_decisive_games=g.only_decisive_games, skip_time_forfeit=g.skip_time_forfeit,
+        min_rating=g.min_rating, max_rating=g.max_rating,
+    )
+    # FICS: nessun tag [Termination] affidabile nei dump ficsgames.org -> non si
+    # filtra per esito/terminazione, si tengono tutte le partite del file
+    # (comprese quelle terminate per timeout). Il rating resta un filtro attivo,
+    # sia come soglia min/max sia come richiesta di entrambi i rating presenti.
+    fics_header = HeaderFilterConfig(
+        only_decisive_games=False, skip_time_forfeit=False, require_both_ratings=True,
+        min_rating=g.min_rating, max_rating=g.max_rating,
+    )
+
     return GamesBuilderConfig(
         sources=_game_sources(cfg),
         engine=EngineConfig(
@@ -137,10 +151,8 @@ def make_games_config(cfg: Config, avg_time: Dict[int, float]) -> GamesBuilderCo
             retry_attempts=g.stockfish_retry_attempts, retry_backoff_seconds=g.stockfish_retry_backoff_seconds,
         ),
         mate_range=(g.mate_range_min, g.mate_range_max),
-        header=HeaderFilterConfig(
-            only_decisive_games=g.only_decisive_games, skip_time_forfeit=g.skip_time_forfeit,
-            min_rating=g.min_rating, max_rating=g.max_rating,
-        ),
+        header=header,
+        header_by_tag={cfg.raw_data.fics_source_tag: fics_header},
         quality=QualityConfig(
             min_material_for_mate_attempt=g.min_material_for_mate_attempt,
             min_material_diff_for_mate_attempt=g.min_material_diff_for_mate_attempt,
@@ -372,7 +384,6 @@ def step_clean(ctx: Context) -> Dict[str, Any]:
         logger.info("[clean] disabilitato: skip.")
         return {}
 
-    from Cleaner.CleanDataset import clean_sharded_directory  # esterno al package
 
     pairs = [("train", c.input_dir_train, c.output_dir_train), ("val", c.input_dir_val, c.output_dir_val)]
     if c.input_dir_test and c.output_dir_test:

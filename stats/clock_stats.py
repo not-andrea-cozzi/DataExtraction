@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import math
 import random
+import statistics
 from collections import defaultdict
 from typing import Dict, Iterable, List, Optional, Tuple
 
@@ -12,7 +13,12 @@ logger = logging.getLogger(__name__)
 
 _MIN_SIGMA = 0.3
 _TRUE_STRINGS = {"true", "1", "yes"}
+
+# Stat = (mu, sigma, n) nello spazio log. Invariato rispetto alla versione
+# precedente: chi consuma clock_stats.json non deve cambiare nulla.
 Stat = Tuple[float, float, int]
+
+FallbackLevel = str  # "rating_mate" | "rating" | "global"
 
 
 def _bucket(rating: float, size: int) -> int:
@@ -47,19 +53,33 @@ def _to_int_or_none(v) -> Optional[int]:
     return None if f is None else int(f)
 
 
+def _iqr_bounds(values: List[float], k: float) -> Tuple[float, float]:
+    """Bound di Tukey (k * IQR) sui valori dati (qui: log-tempi di una cella).
+    Con <4 osservazioni i quartili non sono affidabili: nessun taglio."""
+    if len(values) < 4:
+        return float("-inf"), float("inf")
+    q1, _, q3 = statistics.quantiles(values, n=4, method="inclusive")
+    iqr = q3 - q1
+    if iqr <= 0:
+        return float("-inf"), float("inf")
+    return q1 - k * iqr, q3 + k * iqr
+
+
 class ClockStatsBuilder:
+
     def __init__(self, csv_paths: Iterable[str], bucket_size: int = 100, min_count: int = 30,
-                 max_seconds: float = 300.0, min_seconds: float = 0.05) -> None:
+                 max_seconds: float = 300.0, min_seconds: float = 0.05,
+                 iqr_k: float = 3.0) -> None:
         self.paths = list(csv_paths)
         self.bucket_size = bucket_size
         self.min_count = min_count
         self.max_seconds = max_seconds
         self.min_seconds = min_seconds
+        self.iqr_k = iqr_k
 
-    def build(self) -> dict:
-        acc_rm: Dict[Tuple[int, int], List[float]] = defaultdict(lambda: [0, 0.0, 0.0])
-        acc_r: Dict[int, List[float]] = defaultdict(lambda: [0, 0.0, 0.0])
-        acc_g = [0, 0.0, 0.0]
+    def _read_valid_log_times(self) -> Tuple[Dict[Tuple[int, int], List[float]], Dict[int, List[float]]]:
+        by_rm: Dict[Tuple[int, int], List[float]] = defaultdict(list)
+        by_r: Dict[int, List[float]] = defaultdict(list)
         seen: set = set()
 
         for rec in iter_csv(self.paths):
@@ -81,21 +101,64 @@ class ClockStatsBuilder:
 
             lv = math.log(clock)
             b = _bucket(rating, self.bucket_size)
-            for cell in (acc_rm[(b, mate_n)], acc_r[b], acc_g):
-                cell[0] += 1
-                cell[1] += lv
-                cell[2] += lv * lv
+            by_rm[(b, mate_n)].append(lv)
+            by_r[b].append(lv)
 
-        if acc_g[0] == 0:
+        return by_rm, by_r
+
+    def build(self) -> dict:
+        by_rm, by_r = self._read_valid_log_times()
+        if not by_r:
             raise ValueError("ClockStatsBuilder: nessun record con clock reale.")
+
+        # Filtro IQR per cella (bucket, mate_n) e per bucket puro, indipendenti tra loro.
+        rm_clean: Dict[Tuple[int, int], List[float]] = {}
+        rm_dropped = 0
+        for key, vals in by_rm.items():
+            lo, hi = _iqr_bounds(vals, self.iqr_k)
+            kept = [v for v in vals if lo <= v <= hi]
+            rm_dropped += len(vals) - len(kept)
+            if kept:
+                rm_clean[key] = kept
+
+        r_clean: Dict[int, List[float]] = {}
+        r_dropped = 0
+        for key, vals in by_r.items():
+            lo, hi = _iqr_bounds(vals, self.iqr_k)
+            kept = [v for v in vals if lo <= v <= hi]
+            r_dropped += len(vals) - len(kept)
+            if kept:
+                r_clean[key] = kept
+
+        if rm_dropped or r_dropped:
+            logger.info("[clock_stats] outlier IQR (k=%.1f) scartati: by_rating_mate=%d, by_rating=%d",
+                        self.iqr_k, rm_dropped, r_dropped)
+
+        all_log_times = [v for vals in by_r.values() for v in vals]
+        n_g = len(all_log_times)
+        s_g = sum(all_log_times)
+        ss_g = sum(v * v for v in all_log_times)
+
+        def _finalize_map(clean: dict) -> dict:
+            out = {}
+            for key, vals in clean.items():
+                n = len(vals)
+                if n < self.min_count:
+                    continue
+                s = sum(vals)
+                ss = sum(v * v for v in vals)
+                out[key] = _finalize(n, s, ss)
+            return out
+
+        by_rating = _finalize_map(r_clean)
+        by_rating_mate = _finalize_map(rm_clean)
 
         return {
             "bucket_size": self.bucket_size,
-            "global": list(_finalize(int(acc_g[0]), acc_g[1], acc_g[2])),
-            "by_rating": {str(b): list(_finalize(int(c[0]), c[1], c[2]))
-                          for b, c in sorted(acc_r.items()) if c[0] >= self.min_count},
-            "by_rating_mate": {f"{b}|{m}": list(_finalize(int(c[0]), c[1], c[2]))
-                               for (b, m), c in sorted(acc_rm.items()) if c[0] >= self.min_count},
+            "iqr_k": self.iqr_k,
+            "global": list(_finalize(n_g, s_g, ss_g)),
+            "by_rating": {str(b): list(v) for b, v in sorted(by_rating.items())},
+            "by_rating_mate": {f"{b}|{m}": list(v) for (b, m), v in sorted(by_rating_mate.items())},
         }
 
     def build_and_save(self, out_json: str) -> dict:
@@ -149,22 +212,27 @@ class ClockSampler:
         mu = sum(s[0] for s in by_rating.values()) / len(by_rating)
         return cls((mu, sigma, 0), by_rating, {}, **kw)
 
-    def _lookup(self, rating: float, mate_n: Optional[int]) -> Stat:
+    def _lookup(self, rating: float, mate_n: Optional[int]) -> Tuple[Stat, FallbackLevel]:
         b = _bucket(rating, self.bucket_size)
         if self.condition_on_mate_n and mate_n is not None:
             cands = self._buckets_by_mate.get(int(mate_n))
             if cands:
                 nearest = min(cands, key=lambda c: abs(c - b))
                 if abs(nearest - b) <= self.max_bucket_distance:
-                    return self._by_rating_mate[(nearest, int(mate_n))]
+                    return self._by_rating_mate[(nearest, int(mate_n))], "rating_mate"
         if self._rating_buckets:
-            return self._by_rating[min(self._rating_buckets, key=lambda c: abs(c - b))]
-        return self._global
+            return self._by_rating[min(self._rating_buckets, key=lambda c: abs(c - b))], "rating"
+        return self._global, "global"
 
-    def sample(self, rating: float, mate_n: Optional[int], seed_key: str) -> float:
+    def sample_with_source(self, rating: float, mate_n: Optional[int], seed_key: str) -> Tuple[float, FallbackLevel]:
         if self.mode == "constant":
             value = math.exp(self._global[0])
+            source: FallbackLevel = "global"
         else:
-            mu, sigma, _ = self._lookup(float(rating), mate_n)
+            (mu, sigma, _), source = self._lookup(float(rating), mate_n)
             value = math.exp(random.Random(seed_key).gauss(mu, max(sigma, _MIN_SIGMA)))
-        return min(max(value, self.min_seconds), self.cap_seconds)
+        return min(max(value, self.min_seconds), self.cap_seconds), source
+
+    def sample(self, rating: float, mate_n: Optional[int], seed_key: str) -> float:
+        value, _source = self.sample_with_source(rating, mate_n, seed_key)
+        return value
