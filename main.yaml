@@ -116,11 +116,11 @@ splits:
 
 clean:
   enabled: true
-  input_dir_train: "Dataset/Train/train"
-  input_dir_val: "Dataset/Train/val"
-  input_dir_test: "Dataset/Train/test"
-  output_dir_train: "Dataset/Train/train_clean"
-  output_dir_val: "Dataset/Train/val_clean"
-  output_dir_test: "Dataset/Train/test_clean"
-  target_shard_size: 15000
+  input_dir_train: "../Dataset/Train/train"
+  input_dir_val: "../Dataset/Train/val"
+  input_dir_test: "../Dataset/Train/test"
+  output_dir_train: "../Dataset/Train/train_clean"
+  output_dir_val: "../Dataset/Train/val_clean"
+  output_dir_test: "../Dataset/Train/test_clean"
+  target_shard_size: 30000
   workers: 0

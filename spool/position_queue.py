@@ -92,6 +92,11 @@ class PositionSpool:
                 yield records
             finally:
                 del records
+    
+    def approx_positions(self) -> int:
+        """Upper bound del numero di record (shard * shard_size)."""
+        self.flush()
+        return len(self._paths()) * self._shard_size
 
     # ---- split ----
     def build_split_assignment(

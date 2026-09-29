@@ -70,7 +70,7 @@ class DataSection:
     val_dir: str = ""
     test_dir: Optional[str] = None
     max_shards: Optional[int] = None
-    mate_range_min: int = 3
+    mate_range_min: int = 1
     mate_range_max: int = 5
 
 
@@ -102,6 +102,12 @@ class TrainingSection:
     use_amp: bool = True
     seed: int = 42
     device: Optional[str] = None
+    grad_clip: float = 1.0
+    weight_decay: float = 1e-4
+    use_scheduler: bool = True
+    class_weighted_value: bool = False
+    class_weight_shards: int = 4
+    resume: bool = True
 
 
 @dataclass

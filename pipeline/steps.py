@@ -2,7 +2,11 @@ from __future__ import annotations
 
 import gc
 import logging
+import math
 import os
+import pickle
+import random
+import shutil
 from typing import Any, Callable, Dict, List, Optional
 
 from builders.games import (
@@ -19,11 +23,12 @@ from .state import PipelineState
 
 logger = logging.getLogger("pipeline")
 
-# Colonne fisse dei CSV di debug (games e puzzle condividono lo stesso schema).
 DEBUG_FIELDS = [
     "problem_id", "game_id", "fen", "best_move_uci", "mate_n", "mate_n_window",
     "ply", "source", "clock_source", "clock_seconds", "clock_is_real", "rating",
 ]
+
+SPLIT_NAMES = ("train", "val", "test")
 
 
 class Context:
@@ -335,6 +340,48 @@ class _ShardWriter:
         return self.files
 
 
+class _Shuffler:
+
+    def __init__(self, tmp_dir: str, n_buckets: int, seed: int) -> None:
+        self.dir = tmp_dir
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        os.makedirs(tmp_dir)
+        self.n = max(1, n_buckets)
+        self.rng = random.Random(seed)
+        self.paths = [os.path.join(tmp_dir, f"b{i:05d}.pkl") for i in range(self.n)]
+        self.files = [open(p, "wb") for p in self.paths]
+
+    def add(self, rec: Any) -> None:
+        pickle.dump(rec, self.files[self.rng.randrange(self.n)], protocol=pickle.HIGHEST_PROTOCOL)
+
+    def drain(self):
+        for f in self.files:
+            f.close()
+        order = list(range(self.n))
+        self.rng.shuffle(order)
+        for i in order:
+            recs: List[Any] = []
+            with open(self.paths[i], "rb") as f:
+                while True:
+                    try:
+                        recs.append(pickle.load(f))
+                    except EOFError:
+                        break
+            self.rng.shuffle(recs)
+            yield from recs
+            del recs
+            os.remove(self.paths[i])
+        shutil.rmtree(self.dir, ignore_errors=True)
+
+    def abort(self) -> None:
+        for f in self.files:
+            try:
+                f.close()
+            except Exception:
+                pass
+        shutil.rmtree(self.dir, ignore_errors=True)
+
+
 def step_finalize(ctx: Context, mark_done: bool = True) -> Dict[str, Any]:
     cfg = ctx.cfg
     if ctx.skip_if_done("finalize_splits"):
@@ -348,10 +395,27 @@ def step_finalize(ctx: Context, mark_done: bool = True) -> Dict[str, Any]:
         logger.info("[finalize] pass 1/2: assegnazione split.")
         assignment = spool.build_split_assignment(sp.ratios, cfg.pipeline.seed)
 
-        logger.info("[finalize] pass 2/2: scrittura shard (size=%d).", sp.output_shard_size)
-        writers = {n: _ShardWriter(cfg.merged_dir, n, sp.output_shard_size) for n in ("train", "val", "test")}
-        for split, data in spool.iter_positions(assignment):
-            writers[split].append(data)
+        logger.info("[finalize] pass 2/2: shuffle globale + scrittura shard (size=%d).", sp.output_shard_size)
+        writers = {n: _ShardWriter(cfg.merged_dir, n, sp.output_shard_size) for n in SPLIT_NAMES}
+        n_est = spool.approx_positions()
+        shufflers = {
+            n: _Shuffler(
+                os.path.join(cfg.merged_dir, f"_tmp_{n}"),
+                math.ceil(n_est * r / sp.output_shard_size),
+                cfg.pipeline.seed,
+            )
+            for n, r in zip(SPLIT_NAMES, sp.ratios)
+        }
+        try:
+            for split, data in spool.iter_positions(assignment):
+                shufflers[split].add(data)
+            for name, sh in shufflers.items():
+                for rec in sh.drain():
+                    writers[name].append(rec)
+        except Exception:
+            for sh in shufflers.values():
+                sh.abort()
+            raise
 
         meta: Dict[str, Any] = {}
         for name, w in writers.items():
@@ -361,7 +425,7 @@ def step_finalize(ctx: Context, mark_done: bool = True) -> Dict[str, Any]:
 
         _finalize_debug(cfg, ctx, assignment)
         spool.clear()
-        if mark_done: 
+        if mark_done:
             ctx.state.mark_done("finalize_splits", **meta)
         return meta
 
@@ -383,7 +447,6 @@ def step_clean(ctx: Context) -> Dict[str, Any]:
     if not c.enabled:
         logger.info("[clean] disabilitato: skip.")
         return {}
-
 
     pairs = [("train", c.input_dir_train, c.output_dir_train), ("val", c.input_dir_val, c.output_dir_val)]
     if c.input_dir_test and c.output_dir_test:
