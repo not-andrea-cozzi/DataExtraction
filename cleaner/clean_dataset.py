@@ -4,12 +4,12 @@ import gc
 import json
 import logging
 import os
-import time
 from typing import Any, Dict, List
 
-from common.progress import wrap_iter
 import torch
 from torch_geometric.data import Data
+from common.progress import wrap_iter
+
 logger = logging.getLogger("clean")
 
 KEEP_FIELDS = (

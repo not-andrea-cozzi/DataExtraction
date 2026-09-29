@@ -112,8 +112,8 @@ def headers_are_eligible(headers, h: HeaderFilterConfig) -> bool:
     termination = headers.get("Termination", "") or ""
     if h.skip_time_forfeit and "Time forfeit" in termination:
         return False
-    if termination != "Normal":
-        return False
+    #if termination != "Normal":
+    #    return False
 
     white = parse_rating(headers.get("WhiteElo"))
     black = parse_rating(headers.get("BlackElo"))
