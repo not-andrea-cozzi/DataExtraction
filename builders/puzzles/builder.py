@@ -10,7 +10,7 @@ import pandas as pd
 from tqdm import tqdm
 
 from common.io import CsvAppender, finalize_csv
-from core.schema import build_position_data
+from core.schema import build_position_data, mating_moves
 from spool.position_queue import PositionSpool
 from stats.clock_stats import ClockSampler
 from utils.edge_weighting import DEFAULT_EDGE_TIME_FACTORS
@@ -173,6 +173,7 @@ class PuzzleBuilder:
                 board=board, best_move=move, clock_seconds=clock, rating=rating, game_id=game_id,
                 ply=ply_idx, mate_n=current_mate, edge_time_factors=DEFAULT_EDGE_TIME_FACTORS,
                 mate_range=cfg.mate_range,
+                optimal_moves=mating_moves(board) if current_mate == 1 else None,
             )
         except ValueError as e:
             logger.warning("PuzzleId=%s ply=%d scartata (%s).", puzzle_id, ply_idx, e)

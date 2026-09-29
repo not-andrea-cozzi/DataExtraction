@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from functools import partial
 import gc
 import json
 import logging
@@ -36,6 +37,7 @@ from train import (
     summarize,
 )
 from train.dataset import _load_shard, _shard_sizes
+from train.heads import build_timed_backbone
 from utils.compression import decompress_position_data
 from utils.ipc import harden_process_for_ipc
 
@@ -45,7 +47,8 @@ CONFIG_ENV = "TRAIN_CONFIG"
 DEFAULT_CONFIG = "train.yaml"
 BACKBONES = {
     "gat_basic": build_basic_backbone,
-    "gat_time_decay": build_time_decay_backbone,
+    "gat_time_decay": partial(build_timed_backbone, use_time=True, zero_clock=False),
+    "gat_no_time": partial(build_timed_backbone, use_time=False, zero_clock=True),
 }
 
 
@@ -197,16 +200,21 @@ def estimate_value_weights(ds: StreamingShardDataset, num_classes: int, device: 
 
 
 # ---------------------------------------------------------------------- loop
-def batch_terms(policy_logits, policy_targets: List[int], value_logits, mate_targets, device: str,
+def batch_terms(policy_logits, policy_targets: List[torch.Tensor], value_logits, mate_targets, device: str,
                 value_weight: Optional[torch.Tensor] = None):
-    valid = [i for i, t in enumerate(policy_targets) if t >= 0]
+    valid = [i for i, t in enumerate(policy_targets) if t.numel() > 0]
     if valid:
         padded = pad_sequence(
             [policy_logits[i].float() for i in valid], batch_first=True, padding_value=float("-inf")
         )
-        tgt = torch.tensor([policy_targets[i] for i in valid], device=device)
-        policy_loss_sum = F.cross_entropy(padded, tgt, reduction="sum")
-        policy_correct = (padded.argmax(dim=1) == tgt).sum()
+        mask = torch.zeros_like(padded, dtype=torch.bool)
+        for r, i in enumerate(valid):
+            mask[r, policy_targets[i].to(device)] = True
+        lse_all = torch.logsumexp(padded, dim=1)
+        lse_pos = torch.logsumexp(padded.masked_fill(~mask, float("-inf")), dim=1)
+        policy_loss_sum = (lse_all - lse_pos).sum()
+        rows = torch.arange(len(valid), device=device)
+        policy_correct = mask[rows, padded.argmax(dim=1)].sum()
     else:
         policy_loss_sum = value_logits.new_zeros(())
         policy_correct = value_logits.new_zeros((), dtype=torch.long)

@@ -11,14 +11,14 @@ from torch_geometric.data import Data
 from common.progress import wrap_iter
 
 logger = logging.getLogger("clean")
+SHARD_FILENAME_TEMPLATE = "shard_{:05d}.pt"
+MANIFEST_FILENAME = "manifest.json"
 
 KEEP_FIELDS = (
     "event_ids", "x", "edge_index", "edge_attr",
     "time", "y", "legal_move_indices", "position_mate_n", "outcome", "num_nodes",
-    "fen",
+    "fen", "optimal_idx",
 )
-SHARD_FILENAME_TEMPLATE = "shard_{:05d}.pt"
-MANIFEST_FILENAME = "manifest.json"
 
 
 def _clean_single(data: Data) -> Data:

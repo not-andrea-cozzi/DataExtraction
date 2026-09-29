@@ -43,12 +43,12 @@ def collect_predictions(
         ).cpu().tolist()
 
         for i, target in enumerate(policy_targets):
-            valid = target >= 0
+            valid = target.numel() > 0
             rows["mate_n"].append(value_true[i] + mate_range_min)
             rows["n_legal"].append(int(legal_move_indices[i].numel()))
             rows["clock_norm"].append(clock[i])
             rows["policy_valid"].append(valid)
-            rows["policy_correct"].append(bool(valid and policy_pred[i] == target))
+            rows["policy_correct"].append(bool(valid and policy_pred[i] in target.tolist()))
             rows["value_true"].append(value_true[i])
             rows["value_pred"].append(value_pred[i])
 

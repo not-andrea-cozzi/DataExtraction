@@ -100,6 +100,7 @@ def build_position_data(
     mate_n: Optional[int] = None,
     edge_time_factors: Optional[dict] = None,
     mate_range: Optional[Tuple[int, int]] = None,
+    optimal_moves: Optional[List["chess.Move"]] = None
 ) -> Data:
     if best_move not in board.legal_moves:
         raise ValueError(f"best_move={best_move.uci()} illegale (fen={board.fen()}).")
@@ -144,6 +145,9 @@ def build_position_data(
     data.edge_attr = edge_attr
     data.time = time_tensor
     data.y = torch.tensor(encode_move(best_move), dtype=torch.long)
+    opts = {encode_move(best_move)}
+    opts.update(encode_move(m) for m in (optimal_moves or []) if m in board.legal_moves)
+    data.optimal_idx = torch.tensor(sorted(opts), dtype=torch.long)
     data.legal_move_indices = build_legal_move_indices(board)
     data.rating = torch.tensor(float(rating), dtype=torch.float16)
     data.game_id = game_id
@@ -155,3 +159,12 @@ def build_position_data(
                 mate_in_n_label(int(mate_n), mate_range), dtype=torch.long
             )
     return data
+
+def mating_moves(board: "chess.Board") -> List["chess.Move"]:
+    out = []
+    for m in list(board.legal_moves):
+        board.push(m)
+        if board.is_checkmate():
+            out.append(m)
+        board.pop()
+    return out

@@ -23,6 +23,7 @@ BATCH_EXCLUDE_KEYS = [
     "y",
     "position_mate_n",
     "outcome",
+    "optimal_idx",
 ]
 
 
@@ -122,13 +123,16 @@ def chess_collate(batch: List[Data]):
     batch_data = Batch.from_data_list(batch, exclude_keys=BATCH_EXCLUDE_KEYS)
 
     node_offsets: List[int] = []
-    policy_targets: List[int] = []
+    policy_targets: List[torch.Tensor] = []
     running = 0
     for d in batch:
         node_offsets.append(running)
         running += d.num_nodes
-        matches = (d.legal_move_indices == d.y).nonzero(as_tuple=True)[0]
-        policy_targets.append(int(matches[0]) if matches.numel() else -1)
+        opt = getattr(d, "optimal_idx", None)
+        if opt is None:
+            opt = d.y.view(1)
+        opt = opt.view(-1).long()
+        policy_targets.append(torch.isin(d.legal_move_indices, opt).nonzero(as_tuple=True)[0])
 
     legal_move_indices = [d.legal_move_indices for d in batch]
     mate_targets = torch.stack([d.outcome for d in batch])

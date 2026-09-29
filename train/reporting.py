@@ -117,28 +117,46 @@ def make_plots(
     )
 
     if BASIC in frames and TIME_DECAY in frames:
-        wide = paired_frame(frames[TIME_DECAY], frames[BASIC])
-        if wide is None:
-            logger.warning("confronto pairwise saltato: le predizioni dei due modelli non sono allineate")
-        else:
-            colors = plotter.model_colors([TIME_DECAY, BASIC])
+            for na, nb in ((TIME_DECAY, BASIC), (TIME_DECAY, NO_TIME)):
+                if na not in frames or nb not in frames:
+                    continue
+                wide = paired_frame(frames[na], frames[nb], na, nb)
+                if wide is None:
+                    logger.warning("confronto %s vs %s saltato: predizioni non allineate", na, nb)
+                    continue
+                colors = plotter.model_colors([na, nb])
+                tag = f"{na}_vs_{nb}"
 
-            def paired() -> None:
-                _, table = plotter.plot_paired_comparison(
-                    wide,
-                    "mate_n",
-                    f"{TIME_DECAY}_correct",
-                    f"{BASIC}_correct",
-                    label_a="time_decay",
-                    label_b="basic",
-                    color_a=colors[TIME_DECAY],
-                    color_b=colors[BASIC],
-                    xlabel="Mate in n",
-                    title=f"Policy: time_decay vs basic ({eval_name})",
-                    save_path=out("paired_time_decay_vs_basic.png"),
-                )
-                table.to_csv(out("paired_time_decay_vs_basic.csv"), index=False)
+                def paired(wide=wide, na=na, nb=nb, colors=colors, tag=tag) -> None:
+                    _, table = plotter.plot_paired_comparison(
+                        wide, "mate_n", f"{na}_correct", f"{nb}_correct",
+                        label_a=na, label_b=nb, color_a=colors[na], color_b=colors[nb],
+                        xlabel="Mate in n", title=f"Policy: {na} vs {nb} ({eval_name})",
+                        save_path=out(f"paired_{tag}.png"),
+                    )
+                    table.to_csv(out(f"paired_{tag}.csv"), index=False)
 
-            _safe("paired", paired)
+                _safe(f"paired_{tag}", paired)
 
     plt.close("all")
+    
+
+NO_TIME = "gat_no_time"
+
+
+def paired_frame(a: pd.DataFrame, b: pd.DataFrame, name_a: str, name_b: str) -> Optional[pd.DataFrame]:
+    aligned = (
+        len(a) == len(b)
+        and (a["mate_n"].to_numpy() == b["mate_n"].to_numpy()).all()
+        and (a["n_legal"].to_numpy() == b["n_legal"].to_numpy()).all()
+    )
+    if not aligned:
+        return None
+    mask = (a["policy_valid"] & b["policy_valid"]).to_numpy()
+    return pd.DataFrame(
+        {
+            "mate_n": a["mate_n"].to_numpy()[mask],
+            f"{name_a}_correct": a["policy_correct"].to_numpy()[mask],
+            f"{name_b}_correct": b["policy_correct"].to_numpy()[mask],
+        }
+    )

@@ -11,8 +11,7 @@ except ImportError:
 
 T = TypeVar("T")
 
-VARIANTS = ("gat_basic", "gat_time_decay")
-
+VARIANTS = ("gat_basic", "gat_time_decay", "gat_no_time")
 
 class ConfigError(Exception):
     pass
