@@ -424,6 +424,13 @@ def train_variant(
     set_seed(t.seed)
     backbone = BACKBONES[variant](model_cfg, NUM_NODE_FEATURES)
     model = ChessDualHeadModel(backbone, model_cfg).to(device)
+    if t.init_from:
+        src = os.path.join(t.init_from, variant, "best.pt")
+        if not os.path.exists(src):
+            raise FileNotFoundError(f"[{variant}] init_from: {src} non trovato")
+        sd = torch.load(src, map_location=device, weights_only=True)
+        model.load_state_dict(_strip_compile_prefix(sd))
+        logger.info("[%s] pesi inizializzati da %s", variant, src)
 
     # Optimizer fused su CUDA se supportato.
     fused_supported = "fused" in torch.optim.AdamW.__init__.__code__.co_varnames

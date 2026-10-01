@@ -107,6 +107,7 @@ class TrainingSection:
     class_weighted_value: bool = False
     class_weight_shards: int = 4
     resume: bool = True
+    init_from: Optional[str] = None
 
 
 @dataclass
@@ -152,6 +153,8 @@ class RunConfig:
             raise ConfigError("[training] num_workers deve essere >= 0.")
         if t.lr <= 0:
             raise ConfigError("[training] lr deve essere > 0.")
+        if t.init_from is not None and not os.path.isdir(t.init_from):
+            raise ConfigError(f"[training] init_from non e' una directory esistente: {t.init_from!r}")
         if t.policy_loss_weight < 0 or t.value_loss_weight < 0:
             raise ConfigError("[training] i pesi delle loss devono essere >= 0.")
         if t.policy_loss_weight == 0 and t.value_loss_weight == 0:
@@ -187,5 +190,7 @@ def load_config(path: str) -> RunConfig:
         raise ConfigError(f"Valore non valido in {path}: {e}") from e
     if cfg.data.test_dir == "":
         cfg.data.test_dir = None
+    if cfg.training.init_from == "":
+        cfg.training.init_from = None
     cfg.validate()
     return cfg
