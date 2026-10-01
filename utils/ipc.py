@@ -2,8 +2,13 @@ from __future__ import annotations
 
 import io
 import logging
-import resource
+import sys
 from typing import Any, Optional
+
+try:
+    import resource
+except ImportError:
+    resource = None
 
 import torch
 
@@ -12,6 +17,9 @@ _MIN_NOFILE = 8192
 
 
 def harden_process_for_ipc(min_nofile: int = _MIN_NOFILE) -> None:
+    if resource is None or sys.platform == "win32":
+        return
+
     try:
         torch.multiprocessing.set_sharing_strategy("file_system")
     except (RuntimeError, ValueError) as e:

@@ -3,10 +3,9 @@ from __future__ import annotations
 import logging
 import os
 from collections import defaultdict
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import chess
-import pandas as pd
 from tqdm import tqdm
 
 from common.io import CsvAppender, finalize_csv
@@ -14,17 +13,20 @@ from core.schema import build_position_data, mating_moves
 from spool.position_queue import PositionSpool
 from stats.clock_stats import ClockSampler
 from utils.edge_weighting import DEFAULT_EDGE_TIME_FACTORS
-from utils.filters import position_passes_quality
+from utils.filters import position_passes_quality, report_rejects
 
 from .config import PuzzleBuilderConfig
 from .loader import extract_mate_n, load_rows
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_PUZZLE_RATING = 1500.0
+_DEFAULT_PUZZLE_RATING = 600
 
 _DEBUG_FIELDS = ["problem_id", "game_id", "fen", "best_move_uci", "mate_n", "mate_n_window",
-                  "ply", "source", "clock_source", "clock_seconds", "clock_is_real", "rating"]
+                 "ply", "source", "clock_source", "clock_seconds", "clock_is_real", "rating"]
+
+# (records[(data, debug, current_mate)], quality_filtered, deduped, build_errors, mate_initial)
+RowResult = Tuple[List[Tuple[Any, Optional[Dict[str, Any]], int]], int, int, int, int]
 
 
 def build_clock_sampler(cfg: PuzzleBuilderConfig) -> ClockSampler:
@@ -41,7 +43,7 @@ def build_clock_sampler(cfg: PuzzleBuilderConfig) -> ClockSampler:
 
 
 class PuzzleBuilder:
-    def __init__(self, config: PuzzleBuilderConfig, spool: PositionSpool) -> None:
+    def __init__(self, config: PuzzleBuilderConfig, spool: Optional[PositionSpool]) -> None:
         config.validate()
         self.config = config
         self.spool = spool
@@ -60,31 +62,40 @@ class PuzzleBuilder:
     def run(self) -> Dict[str, Any]:
         cfg = self.config
         rows = load_rows(cfg)
+        logger.info("Puzzle: %d righe, modalita' single-process.", len(rows))
 
-        processed = accepted = enqueued = quality_filtered = deduped = 0
+        processed = accepted = enqueued = quality_filtered = deduped = build_errors = 0
         mate_counts: Dict[int, int] = defaultdict(int)
         source_counts: Dict[int, int] = defaultdict(int)
 
-        for row in tqdm(rows, desc="Costruzione posizioni puzzle"):
+        for row in tqdm(rows, total=len(rows), desc="Costruzione posizioni puzzle"):
             processed += 1
-            n = self._process_row(row, mate_counts, source_counts)
-            if n is None:
+            res: Optional[RowResult] = self.process_row(row)
+            if res is None:
                 continue
-            e, qf, dd = n
+            out, qf, dd, be, mate_initial = res
+            source_counts[mate_initial] += 1
             quality_filtered += qf
             deduped += dd
-            if e:
+            build_errors += be
+            for data, dbg, current_mate in out:
+                self.spool.enqueue(cfg.source_tag, data, mate_initial)
+                mate_counts[current_mate] += 1
+                if self.debug and dbg is not None:
+                    self.debug.add(dbg)
+            if out:
                 accepted += 1
-                enqueued += e
+                enqueued += len(out)
 
         self.spool.flush()
         if self.debug:
             self.debug.persist()
 
-        logger.info("Puzzle: processed=%d accepted=%d enqueued=%d quality_filtered=%d deduped=%d",
-                    processed, accepted, enqueued, quality_filtered, deduped)
+        logger.info("Puzzle: processed=%d accepted=%d enqueued=%d quality_filtered=%d deduped=%d build_errors=%d",
+                    processed, accepted, enqueued, quality_filtered, deduped, build_errors)
         logger.info("Sorgente per mate_n: %s", dict(sorted(source_counts.items())))
         logger.info("Posizioni per mate_n: %s", dict(sorted(mate_counts.items())))
+        report_rejects(logger)
 
         return {
             "processed_puzzles": processed,
@@ -94,10 +105,11 @@ class PuzzleBuilder:
             "source_mate_n_counts": dict(source_counts),
             "quality_filtered_positions": quality_filtered,
             "deduped_positions": deduped,
+            "build_error_positions": build_errors,
         }
 
-    def _process_row(self, row: Dict, mate_counts, source_counts):
-        """Ritorna (enqueued, quality_filtered, deduped) oppure None se scartato."""
+    def process_row(self, row: Dict) -> Optional[RowResult]:
+        """Puro (nessun I/O su spool/debug). None se il puzzle e' scartato in partenza."""
         cfg = self.config
         puzzle_id = row.get("PuzzleId")
         if not puzzle_id:
@@ -122,14 +134,24 @@ class PuzzleBuilder:
         if first not in board.legal_moves:
             return None
         board.push(first)
-        source_counts[mate_initial] += 1
 
         rating_raw = row.get("Rating")
-        rating = float(rating_raw) if pd.notna(rating_raw) else _DEFAULT_PUZZLE_RATING
+        if isinstance(rating_raw, float) and rating_raw != rating_raw:
+            rating = float(_DEFAULT_PUZZLE_RATING)
+        elif rating_raw is None or (isinstance(rating_raw, str) and not rating_raw.strip()):
+            rating = float(_DEFAULT_PUZZLE_RATING)
+        else:
+            try:
+                rating = float(rating_raw)
+            except (TypeError, ValueError):
+                rating = float(_DEFAULT_PUZZLE_RATING)
+
         game_id = f"{cfg.source_tag}_{puzzle_id}"
 
-        enqueued = quality_filtered = deduped = 0
+        out: List[Tuple[Any, Optional[Dict[str, Any]], int]] = []
+        quality_filtered = deduped = build_errors = 0
         seen: set = set()
+        want_debug = self.debug is not None
 
         for ply_idx, uci in enumerate(uci_moves[1:], start=1):
             try:
@@ -137,11 +159,15 @@ class PuzzleBuilder:
             except ValueError:
                 break
             if move not in board.legal_moves:
+                logger.warning("PuzzleId=%s ply=%d: mossa illegale, puzzle troncato.", puzzle_id, ply_idx)
                 break
 
-            is_solver_move = ply_idx % 2 == 1
-            if is_solver_move:
-                key = " ".join(board.fen().split(" ")[:4]) if cfg.dedupe_positions else None
+            if ply_idx % 2 == 1:  # mossa del solver
+                if cfg.dedupe_positions:
+                    key = board.epd()
+                else:
+                    key = None
+
                 if key is not None and key in seen:
                     deduped += 1
                 elif not position_passes_quality(board, cfg.quality):
@@ -149,24 +175,20 @@ class PuzzleBuilder:
                 else:
                     if key is not None:
                         seen.add(key)
-                    if self._emit(board, move, game_id, ply_idx, rating, mate_initial, puzzle_id, mate_counts):
-                        enqueued += 1
+                    rec = self._emit(board, move, game_id, ply_idx, rating,
+                                     mate_initial, puzzle_id, want_debug)
+                    if rec is None:
+                        build_errors += 1
+                    else:
+                        out.append(rec)
             board.push(move)
 
-        return enqueued, quality_filtered, deduped
+        return out, quality_filtered, deduped, build_errors, mate_initial
 
-    def _emit(self, board, move, game_id, ply_idx, rating, mate_initial, puzzle_id, mate_counts) -> bool:
+    def _emit(self, board, move, game_id, ply_idx, rating, mate_initial, puzzle_id, want_debug):
         cfg = self.config
         current_mate = max(1, mate_initial - (ply_idx // 2))
-
-        lo, hi = cfg.mate_range
-        if not (lo <= current_mate <= hi):
-            return False
-
         clock = self._sampler.sample(rating, mate_initial, f"{game_id}:{ply_idx}")
-
-        if clock <= 0.0:
-            return False
 
         try:
             data = build_position_data(
@@ -177,12 +199,11 @@ class PuzzleBuilder:
             )
         except ValueError as e:
             logger.warning("PuzzleId=%s ply=%d scartata (%s).", puzzle_id, ply_idx, e)
-            return False
+            return None
 
-        self.spool.enqueue(cfg.source_tag, data, mate_initial)
-        mate_counts[current_mate] += 1
-        if self.debug:
-            self.debug.add({
+        dbg: Optional[Dict[str, Any]] = None
+        if want_debug:
+            dbg = {
                 "problem_id": f"{game_id}_{ply_idx}",
                 "game_id": game_id,
                 "fen": board.fen(),
@@ -195,8 +216,8 @@ class PuzzleBuilder:
                 "clock_seconds": float(clock),
                 "clock_is_real": False,
                 "rating": rating,
-            })
-        return True
+            }
+        return data, dbg, current_mate
 
     def finalize_debug(self, assignment: Dict[str, str]) -> Optional[str]:
         if not self.debug:
