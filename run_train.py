@@ -454,13 +454,9 @@ def train_variant(
     start_epoch = 0
     finished = False
 
-    # Resume. _strip_compile_prefix gestisce eventuali checkpoint salvati da un modello compilato.
     if t.resume and os.path.exists(last_path):
         ck = torch.load(last_path, map_location="cpu", weights_only=False)
         model.load_state_dict(_strip_compile_prefix(ck["model"]))
-        # FIX: load_state_dict prende i flag 'fused'/'foreach' dal checkpoint e, in base a quelli,
-        # decide dove mettere 'step' (CPU se non-fused, GPU se fused). Riallineo i flag del checkpoint
-        # a quelli attuali PRIMA del load, cosi' implementazione e device degli stati sono coerenti.
         opt_sd = ck["optimizer"]
         for g in opt_sd["param_groups"]:
             g["fused"] = use_fused

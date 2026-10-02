@@ -108,6 +108,22 @@ class TrainingSection:
     class_weight_shards: int = 4
     resume: bool = True
     init_from: Optional[str] = None
+    # ------------------------------------------------------------------
+    # NUOVO: opzioni di ottimizzazione usate da run_train.py
+    # (lette con getattr(..., default), quindi i default qui sotto sono
+    #  gli stessi usati dallo script se il campo non fosse presente)
+    # ------------------------------------------------------------------
+    lr_schedule: str = "plateau"          # "plateau" (comportamento storico) | "cosine"
+    warmup_epochs: int = 0                # warmup lineare iniziale (epoche), consigliato 1-3 con cosine
+    min_lr_frac: float = 0.01             # con cosine: lr finale come frazione di quello iniziale
+    use_ema: bool = True                  # EMA dei pesi: validazione e best.pt usano i pesi EMA
+    ema_decay: float = 0.999
+    value_label_smoothing: float = 0.05   # label smoothing sulla value head (mate-in-n)
+    value_soft_label_sigma: float = 0.0   # >0: target soft ordinali (sostituisce lo smoothing)
+    amp_dtype: str = "float16"            # "float16" | "bfloat16" (fallback automatico se non supportato)
+    grad_accum_steps: int = 1             # micro-batch accumulati per step efficace piu' grande
+    compile_model: bool = False           # torch.compile (provare solo a training stabile)
+    adam_beta2: float = 0.999             # 0.95-0.98 se la loss e' rumorosa o instabile
 
 
 @dataclass
@@ -159,6 +175,29 @@ class RunConfig:
             raise ConfigError("[training] i pesi delle loss devono essere >= 0.")
         if t.policy_loss_weight == 0 and t.value_loss_weight == 0:
             raise ConfigError("[training] almeno un peso di loss deve essere > 0.")
+        # ------------------------------------------------------------------
+        # NUOVO: validazione delle opzioni di ottimizzazione
+        # ------------------------------------------------------------------
+        if t.lr_schedule not in ("plateau", "cosine"):
+            raise ConfigError(f"[training] lr_schedule non valido: {t.lr_schedule!r}. Valide: ('plateau', 'cosine')")
+        if t.warmup_epochs < 0:
+            raise ConfigError("[training] warmup_epochs deve essere >= 0.")
+        if t.lr_schedule == "cosine" and t.warmup_epochs >= t.num_epochs:
+            raise ConfigError("[training] warmup_epochs deve essere < num_epochs con lr_schedule: cosine.")
+        if not (0.0 < t.ema_decay < 1.0):
+            raise ConfigError("[training] ema_decay deve essere in (0, 1).")
+        if not (0.0 <= t.min_lr_frac < 1.0):
+            raise ConfigError("[training] min_lr_frac deve essere in [0, 1).")
+        if not (0.0 <= t.value_label_smoothing < 1.0):
+            raise ConfigError("[training] value_label_smoothing deve essere in [0, 1).")
+        if t.value_soft_label_sigma < 0:
+            raise ConfigError("[training] value_soft_label_sigma deve essere >= 0.")
+        if t.amp_dtype not in ("float16", "bfloat16"):
+            raise ConfigError(f"[training] amp_dtype non valido: {t.amp_dtype!r}. Valide: ('float16', 'bfloat16')")
+        if t.grad_accum_steps < 1:
+            raise ConfigError("[training] grad_accum_steps deve essere >= 1.")
+        if not (0.0 < t.adam_beta2 < 1.0):
+            raise ConfigError("[training] adam_beta2 deve essere in (0, 1).")
 
 
 _SECTIONS = {
