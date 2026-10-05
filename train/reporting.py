@@ -53,13 +53,7 @@ def _safe(name: str, fn: Callable[[], Any]) -> Any:
         return None
 
 
-def make_plots(
-    histories: Mapping[str, Sequence[Mapping[str, Any]]],
-    frames: Mapping[str, pd.DataFrame],
-    plots_dir: str,
-    mate_range: Tuple[int, int],
-    eval_name: str,
-) -> None:
+def make_plots(histories, frames, plots_dir, mate_range, eval_name, mate_order=None) -> None:
     os.makedirs(plots_dir, exist_ok=True)
 
     def out(name: str) -> str:

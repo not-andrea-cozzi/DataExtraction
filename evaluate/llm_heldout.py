@@ -21,7 +21,7 @@ import pandas as pd
 
 from common.io import atomic_write_json, read_json
 
-from . import EvaluateLLM as E
+from . import llm_setting as E
 from .config import ConfigError, EvalConfig
 from .holdout import read_fens
 

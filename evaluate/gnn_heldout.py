@@ -84,5 +84,5 @@ def run(cfg: EvalConfig) -> Dict[str, Any]:
 
     summary_path = os.path.join(cfg.paths.out_dir, "gnn", "summary.csv")
     pd.DataFrame(rows).to_csv(summary_path, index=False)
-    make_plots(histories, frames, os.path.join(cfg.paths.out_dir, "gnn", "plots"), mate_range, "heldout")
+    make_plots(histories, frames, os.path.join(cfg.paths.out_dir, "gnn", "plots"), mate_range, "heldout", mate_order=cfg.mate_order)
     return {"summary_csv": summary_path, "variants": list(frames)}

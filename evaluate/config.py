@@ -15,6 +15,12 @@ LLM_REQUIRED = ("llm_base_url", "llm_model", "llm_api_key_env")
 
 
 @dataclass
+class PlotsSection:
+    mate_min: int = 1
+    mate_max: int = 10
+
+
+@dataclass
 class PathsSection:
     holdout_dir: str = ""          # .../HeldOut/heldout_clean (output di heldout.py)
     runs_dir: str = ""             # output.dir di run_train: <runs_dir>/<variant>/model.pt
@@ -40,8 +46,13 @@ class EvalConfig:
     paths: PathsSection = field(default_factory=PathsSection)
     gnn: GnnSection = field(default_factory=GnnSection)
     stats: StatsSection = field(default_factory=StatsSection)
-    # Sezione libera: chiavi del vecchio evaluate_llm.yaml (llm_*) + enabled/limit/max_workers/max_n.
     llm: Dict[str, Any] = field(default_factory=dict)
+    
+    plots: PlotsSection = field(default_factory=PlotsSection)
+
+    @property
+    def mate_order(self) -> List[int]:
+        return list(range(self.plots.mate_min, self.plots.mate_max + 1))
 
     def gnn_csv(self, variant: str) -> str:
         return os.path.join(self.paths.out_dir, "gnn", f"{variant}_predictions.csv")
@@ -76,7 +87,7 @@ class EvalConfig:
                 raise ConfigError(f"[llm] chiavi mancanti: {missing} (oppure enabled: false).")
 
 
-_SECTIONS = {"paths": PathsSection, "gnn": GnnSection, "stats": StatsSection}
+_SECTIONS = {"paths": PathsSection, "gnn": GnnSection, "stats": StatsSection, "plots": PlotsSection}
 
 
 def load_config(path: str) -> EvalConfig:
