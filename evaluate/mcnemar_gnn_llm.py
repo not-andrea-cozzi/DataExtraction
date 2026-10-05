@@ -68,7 +68,7 @@ def run(cfg: EvalConfig) -> Dict[str, Any]:
     plotter.accuracy_table(long, "mate_n").to_csv(os.path.join(out_dir, "accuracy_by_n.csv"), index=False)
     plotter.plot_accuracy_by_group(
         long, "mate_n", xlabel="Mate in n", ylabel="Policy accuracy",
-        order=cfg.mate_order
+        order=cfg.mate_order,
         title="Policy accuracy by mate depth (heldout)", save_path=os.path.join(out_dir, "accuracy_by_n.png"),
     )
     plt.close("all")

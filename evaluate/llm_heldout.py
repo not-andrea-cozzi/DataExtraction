@@ -6,8 +6,8 @@ La cache delle risposte e' un JSON interno a EvaluateLLM (contiene raw_text/erro
 Due protezioni rispetto all'uso diretto di EvaluateLLM:
  - la cache del modulo e' indicizzata per posizione (idx), non per FEN: il nome del file include
    un hash delle FEN, cosi' un heldout rigenerato non riusa risposte di altre posizioni;
- - il modulo non ritenta mai le voci in cache che contengono un errore API: qui vengono purgate
-   prima di ogni run.
+ - il modulo non ritenta mai le voci in cache che contengono un errore API o una risposta vuota:
+   qui vengono purgate prima di ogni run.
 """
 from __future__ import annotations
 
@@ -32,11 +32,12 @@ def _purge_errors(cache_path: str) -> int:
     cache = read_json(cache_path, default=None)
     if not isinstance(cache, dict):
         return 0
-    kept = {k: v for k, v in cache.items() if not (isinstance(v, dict) and v.get("error"))}
+    kept = {k: v for k, v in cache.items()
+            if not (isinstance(v, dict) and (v.get("error") or not v.get("pred_move_uci")))}
     removed = len(cache) - len(kept)
     if removed:
         atomic_write_json(cache_path, kept)
-        logger.info("[llm] rimosse %d voci con errore API dalla cache (verranno ritentate).", removed)
+        logger.info("[llm] rimosse %d voci con errore API o risposta vuota dalla cache (verranno ritentate).", removed)
     return removed
 
 

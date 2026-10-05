@@ -1,21 +1,19 @@
 from __future__ import annotations
 
-import atexit
+import asyncio
 import csv
 import dataclasses
 import functools
-import glob
 import json
 import logging
-import multiprocessing as mp
 import os
 import re
-import signal
 import time
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import chess
+import httpx
 import numpy as np
 
 from core.move_codec import decode_move
@@ -37,14 +35,14 @@ class LLMConfig:
     max_workers: int = 1
 
     llm_base_url: str = "https://api.groq.com/openai/v1/chat/completions"
-    llm_model: str = "llama-3.3-70b-versatile"
+    llm_model: str = "openai/gpt-oss-120b"
     llm_api_key_env: str = "GROQ_API_KEY"
     llm_temperature: float = 0.0
-    llm_max_tokens: int = 32
-    llm_reasoning_effort: Optional[str] = None
+    llm_max_tokens: int = 1024
+    llm_reasoning_effort: Optional[str] = "low"
     llm_reasoning_format: Optional[str] = None
-    llm_timeout_seconds: float = 30.0
-    llm_max_retries: int = 3
+    llm_timeout_seconds: float = 120.0
+    llm_max_retries: int = 10
     llm_retry_backoff_seconds: float = 2.0
     llm_request_delay_seconds: float = 0.5
 
@@ -115,17 +113,16 @@ def _try_parse_move(text: str, board: "chess.Board") -> str:
 
 
 # ============================================================================
-# Solver
+# Solver (async, httpx)
 # ============================================================================
 class GroqLLMSolver:
+    """Contenitore dei parametri di chiamata; la chiamata vera e' in _solve_async."""
+
     def __init__(self, base_url: str, model: str, api_key: str, temperature: float = 0.0,
                  max_tokens: int = 32, reasoning_effort: Optional[str] = None,
                  reasoning_format: Optional[str] = None, timeout_seconds: float = 30.0,
                  max_retries: int = 3, retry_backoff_seconds: float = 2.0,
                  request_delay_seconds: float = 0.0) -> None:
-        import requests
-
-        self._requests = requests
         self.base_url = base_url
         self.model = model
         self.api_key = api_key
@@ -137,44 +134,6 @@ class GroqLLMSolver:
         self.max_retries = max_retries
         self.retry_backoff_seconds = retry_backoff_seconds
         self.request_delay_seconds = request_delay_seconds
-
-    def solve(self, fen: str) -> Dict[str, Any]:
-        payload: Dict[str, Any] = {
-            "model": self.model,
-            "messages": [{"role": "user", "content": _build_llm_prompt(fen)}],
-            "temperature": self.temperature,
-            "max_tokens": self.max_tokens,
-        }
-        if self.reasoning_effort:
-            payload["reasoning_effort"] = self.reasoning_effort
-        if self.reasoning_format:
-            payload["reasoning_format"] = self.reasoning_format
-        headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
-
-        last_err: Optional[str] = None
-        for attempt in range(1, self.max_retries + 1):
-            try:
-                resp = self._requests.post(self.base_url, headers=headers, json=payload,
-                                           timeout=self.timeout_seconds)
-                if resp.status_code == 429:
-                    raise RuntimeError(f"rate limited (429): {resp.text[:200]}")
-                resp.raise_for_status()
-                message = resp.json()["choices"][0]["message"]
-                raw_text = message.get("content", "") or ""
-                pred = _extract_uci(raw_text)
-                if not pred:
-                    reasoning = message.get("reasoning", "") or ""
-                    if reasoning:
-                        raw_text, pred = reasoning, _extract_uci(reasoning)
-                if self.request_delay_seconds > 0:
-                    time.sleep(self.request_delay_seconds)
-                return {"raw_text": raw_text, "pred_move_uci": pred or "", "error": None}
-            except Exception as e:
-                last_err = f"{type(e).__name__}: {e}"
-                logger.debug("[solve] attempt %d/%d fallita: %s", attempt, self.max_retries, last_err)
-                if attempt < self.max_retries:
-                    time.sleep(self.retry_backoff_seconds * attempt)
-        return {"raw_text": "", "pred_move_uci": "", "error": last_err or "unknown error"}
 
 
 def _build_solver_factory_from_cfg(cfg: Union[LLMConfig, Dict[str, Any]], api_key: str
@@ -191,98 +150,167 @@ def _build_solver_factory_from_cfg(cfg: Union[LLMConfig, Dict[str, Any]], api_ke
     )
 
 
-# ============================================================================
-# Worker multiprocessing
-# ============================================================================
-_W_SOLVER: Optional[GroqLLMSolver] = None
-_W_CACHE: Dict[str, Dict[str, Any]] = {}
-_W_CACHE_PATH: Optional[str] = None
-_W_CACHE_DIRTY = 0
-_FLUSH_EVERY = 5
+_MAX_PAUSE_SECONDS = 300.0  # Retry-After oltre questa soglia = quota giornaliera, non TPM: si interrompe
 
 
-def _flush_worker_cache() -> None:
-    global _W_CACHE_DIRTY
-    if not _W_CACHE_PATH or _W_CACHE_DIRTY == 0:
-        return
+def _retry_after(resp: "httpx.Response", fallback: float) -> float:
     try:
-        _atomic_json_dump(f"{_W_CACHE_PATH}.{os.getpid()}", _W_CACHE)
-        _W_CACHE_DIRTY = 0
-    except Exception:
-        logger.warning("[worker %s] flush cache fallito", os.getpid(), exc_info=True)
+        return float(resp.headers.get("retry-after", "")) + 0.5
+    except ValueError:
+        return fallback
 
 
-def _init_llm_worker(solver_factory: Optional[Callable[[], GroqLLMSolver]],
-                     cache_path: Optional[str]) -> None:
-    global _W_SOLVER, _W_CACHE, _W_CACHE_PATH, _W_CACHE_DIRTY
-    signal.signal(signal.SIGINT, signal.SIG_IGN)
-    atexit.register(_flush_worker_cache)
-    _W_CACHE, _W_CACHE_PATH, _W_CACHE_DIRTY = {}, cache_path, 0
+def _parse_duration(v: str) -> float:
+    """'7.66s' / '1m2.5s' -> secondi. Formato non riconosciuto (es. 'ms'): 5 s prudenziali."""
+    m = re.fullmatch(r"(?:(\d+)m)?(?:(\d+(?:\.\d+)?)s)?", (v or "").strip())
+    if not m or not (m.group(1) or m.group(2)):
+        return 5.0
+    return int(m.group(1) or 0) * 60 + float(m.group(2) or 0)
 
-    if solver_factory is not None:
+
+class _Throttle:
+    """Rate limiter condiviso: distanzia l'inizio delle richieste e permette pause globali."""
+
+    def __init__(self, interval: float) -> None:
+        self.interval = max(0.0, interval)
+        self._lock = asyncio.Lock()
+        self._next = 0.0
+        self._avg_tokens: Optional[float] = None
+        self.aborted: Optional[str] = None
+
+    def record(self, total_tokens: float) -> None:
+        """Media mobile dei token realmente consumati per richiesta."""
+        self._avg_tokens = total_tokens if self._avg_tokens is None else 0.8 * self._avg_tokens + 0.2 * total_tokens
+
+    def cost(self, default: float) -> float:
+        return default if self._avg_tokens is None else self._avg_tokens * 1.5
+
+    async def wait(self) -> None:
+        async with self._lock:
+            while True:
+                delay = self._next - time.monotonic()
+                if delay <= 0:
+                    break
+                await asyncio.sleep(delay)
+            self._next = time.monotonic() + self.interval
+
+    def pause(self, seconds: float) -> None:
+        self._next = max(self._next, time.monotonic() + seconds)
+
+    def observe(self, resp: "httpx.Response", cost: float) -> None:
+        """Se i token residui nella finestra sono meno del costo stimato, pausa fino al reset."""
         try:
-            _W_SOLVER = solver_factory()
-        except Exception:
-            logger.exception("[worker %s] inizializzazione solver FALLITA", os.getpid())
-            _W_SOLVER = None
-    else:
-        _W_SOLVER = None
-
-    if cache_path and os.path.exists(cache_path):
-        try:
-            with open(cache_path, "r", encoding="utf-8") as f:
-                _W_CACHE = json.load(f)
-        except Exception:
-            _W_CACHE = {}
+            remaining = float(resp.headers.get("x-ratelimit-remaining-tokens", ""))
+        except ValueError:
+            return
+        if remaining < cost:
+            self.pause(_parse_duration(resp.headers.get("x-ratelimit-reset-tokens", "")) + 0.5)
 
 
-def _worker_evaluate_one(args: Tuple[str, str]) -> Tuple[str, str]:
-    global _W_CACHE_DIRTY
-    pid, fen = args
+async def _solve_async(s: GroqLLMSolver, client: "httpx.AsyncClient",
+                       sem: asyncio.Semaphore, fen: str, throttle: _Throttle) -> Dict[str, Any]:
+    payload: Dict[str, Any] = {
+        "model": s.model,
+        "temperature": s.temperature,
+        "max_tokens": s.max_tokens,
+        "messages": [{"role": "user", "content": _build_llm_prompt(fen)}],
+    }
+    if s.reasoning_effort:
+        payload["reasoning_effort"] = s.reasoning_effort
+    if s.reasoning_format:
+        payload["reasoning_format"] = s.reasoning_format
+    headers = {"Authorization": f"Bearer {s.api_key}"}
 
-    if _W_SOLVER is None:
-        _W_CACHE[pid] = {"raw_text": "", "pred_move_uci": "", "error": "solver_not_initialized_in_worker"}
-        _W_CACHE_DIRTY += 1
-        if _W_CACHE_DIRTY >= _FLUSH_EVERY:
-            _flush_worker_cache()
-        return pid, ""
-
-    result = _W_CACHE.get(pid)
-    if not isinstance(result, dict):
-        try:
-            result = _W_SOLVER.solve(fen)
-        except Exception as e:
-            result = {"raw_text": "", "pred_move_uci": "", "error": f"{type(e).__name__}: {e}"}
-        _W_CACHE[pid] = result
-        _W_CACHE_DIRTY += 1
-        if _W_CACHE_DIRTY >= _FLUSH_EVERY:
-            _flush_worker_cache()
-
-    pred = result.get("pred_move_uci") or ""
-    if not pred:
-        raw = result.get("raw_text", "") or ""
-        if raw:
+    err: Optional[str] = None
+    raw_last = ""
+    reasoning_last = ""
+    finish: Optional[str] = None
+    async with sem:
+        for attempt in range(1, s.max_retries + 1):
+            if throttle.aborted:
+                return {"raw_text": "", "pred_move_uci": "", "error": f"aborted: {throttle.aborted}"}
             try:
-                pred = _try_parse_move(raw, chess.Board(fen))
-            except Exception:
-                pred = ""
-    if not pred:
-        logger.warning("[worker %s] pid=%s pred vuota | error=%r | raw[:100]=%r",
-                       os.getpid(), pid, result.get("error"), (result.get("raw_text") or "")[:100])
-    return pid, pred
+                await throttle.wait()
+                resp = await client.post(s.base_url, headers=headers, json=payload)
+                throttle.observe(resp, throttle.cost(s.max_tokens + 300))
+                if resp.status_code == 429:
+                    err = "429: rate limited"
+                    wait = _retry_after(resp, s.retry_backoff_seconds * attempt)
+                    logger.warning(
+                        "[LLM] 429, attesa %.0fs | remaining-tokens=%s remaining-requests=%s | %s",
+                        wait, resp.headers.get("x-ratelimit-remaining-tokens"),
+                        resp.headers.get("x-ratelimit-remaining-requests"), resp.text[:300],
+                    )
+                    if wait > _MAX_PAUSE_SECONDS:
+                        throttle.aborted = (f"429 con Retry-After {wait:.0f}s "
+                                            f"(probabile quota giornaliera): {resp.text[:200]}")
+                        return {"raw_text": "", "pred_move_uci": "", "error": throttle.aborted}
+                    throttle.pause(wait)
+                    continue
+                if resp.status_code in (400, 401, 403, 404):
+                    # errore di configurazione (modello/chiave/payload): inutile ritentare
+                    return {"raw_text": "", "pred_move_uci": "",
+                            "error": f"HTTP {resp.status_code}: {resp.text[:200]}"}
+                resp.raise_for_status()
+                data = resp.json()
+                choice = data["choices"][0]
+                message = choice["message"]
+                total = (data.get("usage") or {}).get("total_tokens")
+                if total:
+                    throttle.record(float(total))
+                # La mossa si legge SOLO dal content: il reasoning contiene mosse candidate, non la risposta.
+                raw = message.get("content") or ""
+                pred = _extract_uci(raw)
+                err = None
+                if pred:
+                    return {"raw_text": raw, "pred_move_uci": pred, "error": None}
+                # content vuoto (tipicamente finish_reason='length': token esauriti nel ragionamento).
+                # Con temperature 0 e' deterministico: inutile ritentare.
+                raw_last = raw
+                finish = choice.get("finish_reason")
+                reasoning_last = (message.get("reasoning") or "")[:1500]
+                break
+            except Exception as e:
+                err = f"{type(e).__name__}: {e}"
+                logger.debug("[solve] attempt %d/%d fallita: %s", attempt, s.max_retries, err)
+                await asyncio.sleep(s.retry_backoff_seconds * attempt)
+    return {"raw_text": raw_last, "pred_move_uci": "", "error": err,
+            "finish_reason": finish, "reasoning": reasoning_last}
 
 
-def _merge_worker_caches(cache_path: str, base: Dict[str, Any]) -> Dict[str, Any]:
-    merged = dict(base)
-    files = [p for p in glob.glob(f"{cache_path}.*") if not p.endswith((".tmp", ".corrupt"))]
-    for path in files:
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                merged.update(json.load(f))
-            os.remove(path)
-        except Exception as e:
-            logger.warning("[LLM] Impossibile leggere %s: %s", path, e)
-    return merged
+async def solve_all_async(solver: GroqLLMSolver, items: List[Tuple[str, str, str, int]],
+                          cache: Dict[str, Any], concurrency: int,
+                          cache_path: Optional[str] = None, save_every: int = 10) -> None:
+    sem = asyncio.Semaphore(max(1, concurrency))
+    todo = [(p, f) for p, f, _, _ in items
+            if not (isinstance(cache.get(p), dict)
+                    and cache[p].get("pred_move_uci") and not cache[p].get("error"))]
+    total = len(todo)
+    logger.info("[LLM] %d da chiamare, %d gia' in cache (concorrenza=%d).",
+                total, len(items) - total, concurrency)
+    done = 0
+
+    async with httpx.AsyncClient(timeout=solver.timeout_seconds) as client:
+        throttle = _Throttle(solver.request_delay_seconds)
+
+        async def one(pid: str, fen: str) -> None:
+            nonlocal done
+            cache[pid] = await _solve_async(solver, client, sem, fen, throttle)
+            done += 1
+            if done % save_every == 0 or done == total:
+                logger.info("[LLM] valutati %d/%d.", done, total)
+                if cache_path:
+                    _atomic_json_dump(cache_path, cache)
+
+        await asyncio.gather(*(one(p, f) for p, f in todo))
+
+    if throttle.aborted:
+        raise RuntimeError(f"[LLM] run interrotto, cache salvata: {throttle.aborted}")
+
+    truncated = sum(1 for p, _ in todo if cache[p].get("finish_reason") == "length")
+    if truncated:
+        logger.warning("[LLM] %d/%d risposte troncate (finish_reason=length): alza llm_max_tokens.",
+                       truncated, total)
 
 
 # ============================================================================
@@ -295,7 +323,6 @@ def evaluate_llm_on_holdout(
     max_n: int = 10,
     limit: Optional[int] = None,
     max_workers: int = 1,
-    pool_join_timeout: float = 60.0,
 ) -> Dict[str, Any]:
     if not os.path.exists(os.path.join(holdout_dir, "manifest.json")):
         raise FileNotFoundError(f"manifest.json non trovato in '{holdout_dir}': esegui heldout.py.")
@@ -330,83 +357,25 @@ def evaluate_llm_on_holdout(
     if missing_fen:
         logger.warning("[LLM] %d posizioni senza 'fen' saltate.", missing_fen)
 
-    results_by_pid: Dict[str, str] = {}
-    total = len(items)
-
-    # ---- sequenziale ----
-    if solver_factory is None or max_workers <= 1:
-        solver = solver_factory() if solver_factory is not None else None
-        cache = dict(base_cache)
-        for n_done, (pid, fen, _, _) in enumerate(items, 1):
-            if solver is None:
-                pred = ""
-            else:
-                result = cache.get(pid)
-                if not isinstance(result, dict):
-                    try:
-                        result = solver.solve(fen)
-                    except Exception as e:
-                        result = {"raw_text": "", "pred_move_uci": "", "error": f"{type(e).__name__}: {e}"}
-                    cache[pid] = result
-                    if cache_path and n_done % 10 == 0:
-                        _atomic_json_dump(cache_path, cache)
-                pred = result.get("pred_move_uci") or ""
-                if not pred:
-                    try:
-                        pred = _try_parse_move(result.get("raw_text", "") or "", chess.Board(fen))
-                    except Exception:
-                        pred = ""
-            results_by_pid[pid] = pred
-            if n_done % 5 == 0 or n_done == total:
-                logger.info("[LLM] valutati %d/%d.", n_done, total)
+    cache = dict(base_cache)
+    try:
+        if solver_factory is not None and items:
+            solver = solver_factory()
+            asyncio.run(solve_all_async(solver, items, cache, max(1, max_workers), cache_path))
+    finally:
         if cache_path:
             _atomic_json_dump(cache_path, cache)
 
-    # ---- multiprocessing ----
-    else:
-        workers = min(max_workers, os.cpu_count() or 2)
-        logger.info("[LLM] Pool con %d worker.", workers)
-        pool = mp.Pool(processes=workers, initializer=_init_llm_worker,
-                       initargs=(solver_factory, cache_path))
-        prev_sigint = signal.signal(signal.SIGINT, signal.default_int_handler)
-        done = 0
-        graceful = False
-        try:
-            for pid, pred in pool.imap_unordered(_worker_evaluate_one,
-                                                 ((p, f) for p, f, _, _ in items), chunksize=1):
-                results_by_pid[pid] = pred
-                done += 1
-                if done % 5 == 0 or done == total:
-                    logger.info("[LLM] valutati %d/%d.", done, total)
-            graceful = True
-        except KeyboardInterrupt:
-            logger.warning("[LLM] Interruzione (%d/%d): salvo risultati parziali.", done, total)
-        finally:
-            signal.signal(signal.SIGINT, prev_sigint)
+    results_by_pid: Dict[str, str] = {}
+    for pid, fen, _, _ in items:
+        r = cache.get(pid) if isinstance(cache.get(pid), dict) else {}
+        pred = r.get("pred_move_uci") or ""
+        if not pred:
             try:
-                if graceful:
-                    pool.close()
-                    pool.join()
-                else:
-                    pool.terminate()
-                    deadline = time.monotonic() + 5.0
-                    for p in pool._pool:
-                        p.join(timeout=max(deadline - time.monotonic(), 0.1))
-                    for p in pool._pool:
-                        if p.is_alive():
-                            try:
-                                os.kill(p.pid, signal.SIGKILL)
-                            except Exception:
-                                pass
+                pred = _try_parse_move(r.get("raw_text", "") or "", chess.Board(fen))
             except Exception:
-                logger.exception("[LLM] Errore shutdown pool.")
-
-        if cache_path:
-            base_cache = _merge_worker_caches(cache_path, base_cache)
-            for pid, pred in results_by_pid.items():
-                if pid not in base_cache:
-                    base_cache[pid] = {"pred_move_uci": pred}
-            _atomic_json_dump(cache_path, base_cache)
+                pred = ""
+        results_by_pid[pid] = pred
 
     # ---- metriche ----
     pids = [p for p, _, _, _ in items]
